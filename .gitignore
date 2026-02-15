@@ -1,0 +1,16 @@
+# Environment
+.env
+
+# Build
+bin/
+obj/
+
+# IDE
+.vs/
+*.user
+*.suo
+
+# NuGet
+*.nupkg
+packages/
+settings.json
