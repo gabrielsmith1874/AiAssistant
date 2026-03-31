@@ -417,15 +417,14 @@ namespace LiveTranscript
                         {
                             Number = ++startNum,
                             Question = qText,
-                            ParagraphAnswer = "⏳ Thinking...",
+                            ParagraphAnswer = "⏳ Generating...",
                             IsExpanded = true
                         };
                         _qaItems.Add(qa);
                         newQas.Add(qa);
                     }
 
-                    QaList.ItemsSource = null;
-                    QaList.ItemsSource = _qaItems;
+                    // QaList.ItemsSource is already bound to _qaItems in constructor
                     AiStatusText.Text = $"{_qaItems.Count} questions found. Streaming answers...";
 
                     // Start streaming answers in background for each NEW question
@@ -453,40 +452,36 @@ namespace LiveTranscript
         {
             try
             {
-                var firstChunk = true;
                 var fullAnswer = new StringBuilder();
+                bool hasStarted = false;
 
                 await foreach (var chunk in _claudeService.StreamAnswerAsync(
                     apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume))
                 {
-                    Dispatcher.Invoke(() => 
+                    if (!hasStarted)
                     {
-                        if (firstChunk)
-                        {
-                            qa.ParagraphAnswer = "";
-                            firstChunk = false;
-                        }
+                        qa.ParagraphAnswer = ""; // Clear the "Thinking..." placeholder
+                        hasStarted = true;
+                    }
 
-                        qa.ParagraphAnswer += chunk;
-                        fullAnswer.Append(chunk);
-                        
-                        // Auto-scroll the QA list if it's the last item
-                        if (qa == _qaItems.LastOrDefault())
-                        {
-                            QaScroller.ScrollToEnd();
-                        }
-                    });
+                    qa.ParagraphAnswer += chunk;
+                    fullAnswer.Append(chunk);
+                    
+                    // Auto-scroll logic moved here to ensure it's on UI thread if needed,
+                    // but since ParagraphAnswer triggers PropertyChanged, we just need to 
+                    // ensure the scroller follows.
+                    if (qa == _qaItems.LastOrDefault())
+                    {
+                        Dispatcher.Invoke(() => QaScroller.ScrollToEnd());
+                    }
                 }
 
                 // Tracking answered questions to avoid duplicates in future extractions
                 _claudeService.PreviouslyAnswered.Add($"Q: {qa.Question}\nA: {fullAnswer}");
-                
-                // Final UI update
-                Dispatcher.Invoke(() => AiStatusText.Text = $"{_qaItems.Count} questions extracted");
             }
             catch (Exception ex)
             {
-                Dispatcher.Invoke(() => qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]");
+                qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]";
             }
         }
 
@@ -600,7 +595,7 @@ namespace LiveTranscript
                             {
                                 Number = ++startNum,
                                 Question = qText,
-                                ParagraphAnswer = "⏳ Thinking...",
+                                ParagraphAnswer = "⏳ Generating...",
                                 IsExpanded = true
                             };
                             _qaItems.Add(qa);

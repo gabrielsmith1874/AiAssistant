@@ -52,13 +52,17 @@ namespace LiveTranscript.Services
                 Model = modelId,
                 MaxTokens = 1024,
                 System = sb.ToString(),
+                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
                 Messages = new List<ClaudeMessage>
                 {
                     new() { Role = "user", Content = $"TRANSCRIPT:\n{transcript}" }
                 }
             };
 
-            var json = JsonConvert.SerializeObject(request);
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
+            { 
+                NullValueHandling = NullValueHandling.Ignore 
+            });
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -101,13 +105,17 @@ namespace LiveTranscript.Services
                 MaxTokens = 2048,
                 System = systemPrompt,
                 Stream = true,
+                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
                 Messages = new List<ClaudeMessage>
                 {
                     new() { Role = "user", Content = userPrompt }
                 }
             };
 
-            var json = JsonConvert.SerializeObject(request);
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
+            { 
+                NullValueHandling = NullValueHandling.Ignore 
+            });
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -123,31 +131,51 @@ namespace LiveTranscript.Services
             }
 
             using var stream = await response.Content.ReadAsStreamAsync();
-            using var reader = new System.IO.StreamReader(stream);
+            var buffer = new byte[8192];
+            var leftover = string.Empty;
 
-            while (!reader.EndOfStream)
+            while (true)
             {
-                var line = await reader.ReadLineAsync();
-                if (string.IsNullOrWhiteSpace(line)) continue;
-                if (line.StartsWith("data: "))
+                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                if (bytesRead == 0) break;
+
+                var text = leftover + Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var lines = text.Split('\n');
+                
+                // Keep the last partial line
+                leftover = lines[^1];
+
+                // Process all complete lines
+                for (int i = 0; i < lines.Length - 1; i++)
                 {
-                    var data = line.Substring(6);
-                    if (data == "[DONE]") break;
-
-                    var delta = JsonConvert.DeserializeObject<JObject>(data);
-                    var type = delta?["type"]?.ToString();
-
-                    if (type == "content_block_delta")
+                    var line = lines[i].Trim();
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.StartsWith("data: "))
                     {
-                        var deltaNode = delta?["delta"];
-                        var deltaType = deltaNode?["type"]?.ToString();
-                        
-                        if (deltaType == "text_delta")
+                        var data = line.Substring(6).Trim();
+                        if (data == "[DONE]") yield break;
+
+                        string? textToYield = null;
+                        try
                         {
-                            var text = deltaNode?["text"]?.ToString();
-                            if (!string.IsNullOrEmpty(text))
-                                yield return text;
+                            var delta = JsonConvert.DeserializeObject<JObject>(data);
+                            var type = delta?["type"]?.ToString();
+
+                            if (type == "content_block_delta")
+                            {
+                                var deltaNode = delta?["delta"];
+                                var deltaType = deltaNode?["type"]?.ToString();
+                                
+                                if (deltaType == "text_delta")
+                                {
+                                    textToYield = deltaNode?["text"]?.ToString();
+                                }
+                            }
                         }
+                        catch { }
+
+                        if (!string.IsNullOrEmpty(textToYield))
+                            yield return textToYield;
                     }
                 }
             }
@@ -160,15 +188,16 @@ namespace LiveTranscript.Services
             sb.AppendLine("TASK: Provide a high-quality, targeted answer to the specific question.");
             sb.AppendLine();
             sb.AppendLine("CORE RULES:");
-            sb.AppendLine("1. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
-            sb.AppendLine("2. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
-            sb.AppendLine("3. DIVERSIFY EXAMPLES: Avoid using the same project or experience for every answer. Scan the resume for different relevant examples to use across different questions. Prioritize variety; only reuse an example if it is the only one that truly fits.");
-            sb.AppendLine("4. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
-            sb.AppendLine("5. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
-            sb.AppendLine("6. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
-            sb.AppendLine("7. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
-            sb.AppendLine("8. BE CONCISE: Keep answer paragraphs short (3-4 sentences max).");
-            sb.AppendLine("9. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
+            sb.AppendLine("1. NO INTERNAL THINKING: Do not use <thinking> blocks or process internally. Generate the final response immediately.");
+            sb.AppendLine("2. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
+            sb.AppendLine("3. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
+            sb.AppendLine("4. DIVERSIFY EXAMPLES: Avoid using the same project or experience for every answer. Scan the resume for different relevant examples to use across different questions. Prioritize variety; only reuse an example if it is the only one that truly fits.");
+            sb.AppendLine("5. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
+            sb.AppendLine("6. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
+            sb.AppendLine("7. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
+            sb.AppendLine("8. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
+            sb.AppendLine("9. BE CONCISE: Keep answer paragraphs short (3-4 sentences max).");
+            sb.AppendLine("10. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
@@ -200,13 +229,17 @@ namespace LiveTranscript.Services
                 Model = modelId,
                 MaxTokens = 4096,
                 System = systemPrompt,
+                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
                 Messages = new List<ClaudeMessage>
                 {
                     new() { Role = "user", Content = userPrompt }
                 }
             };
 
-            var json = JsonConvert.SerializeObject(request);
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
+            { 
+                NullValueHandling = NullValueHandling.Ignore 
+            });
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")
@@ -320,8 +353,20 @@ namespace LiveTranscript.Services
         [JsonProperty("stream")]
         public bool Stream { get; set; }
 
+        [JsonProperty("thinking")]
+        public ClaudeThinkingConfig? Thinking { get; set; }
+
         [JsonProperty("messages")]
         public List<ClaudeMessage> Messages { get; set; } = new();
+    }
+
+    public class ClaudeThinkingConfig
+    {
+        [JsonProperty("type")]
+        public string Type { get; set; } = "disabled";
+
+        [JsonProperty("budget_tokens")]
+        public int? BudgetTokens { get; set; }
     }
 
     public class ClaudeMessage

@@ -379,7 +379,7 @@
                                                         <!-- Paragraph answer -->
                                                         <Border Background="#10FFFFFF" CornerRadius="6"
                                                                 Padding="10,8" Margin="0,0,0,6">
-                                                            <TextBox Text="{Binding ParagraphAnswer}"
+                                                            <TextBox Text="{Binding ParagraphAnswer, UpdateSourceTrigger=PropertyChanged}"
                                                                      IsReadOnly="True"
                                                                      BorderThickness="0"
                                                                      Background="Transparent"
@@ -393,7 +393,7 @@
                                                         </Border>
 
                                                         <!-- Key points -->
-                                                        <TextBox Text="{Binding KeyPoints}"
+                                                        <TextBox Text="{Binding KeyPoints, UpdateSourceTrigger=PropertyChanged}"
                                                                  IsReadOnly="True"
                                                                  BorderThickness="0"
                                                                  Background="Transparent"
