@@ -95,12 +95,13 @@ namespace LiveTranscript.Services
             sb.AppendLine("CORE RULES:");
             sb.AppendLine("1. EXTRACT: Only extract actual interview questions asked to the candidate. Ignore small talk or meta-commentary about the interview.");
             sb.AppendLine("2. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
-            sb.AppendLine("3. USE THE RESUME: Use the provided resume to give specific, concrete examples. If a question is about experience, draw directly from the resume projects and metrics.");
-            sb.AppendLine("4. STAR METHOD: For behavioral questions, use the STAR method (Situation, Task, Action, Result). Be specific but extremely concise.");
-            sb.AppendLine("5. HUMAN STYLE: Sound like a real person, not a robot. Use natural, conversational language. Avoid corporate fluff and overly formal 'AI-speak'.");
-            sb.AppendLine("6. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
-            sb.AppendLine("7. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
-            sb.AppendLine("8. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
+            sb.AppendLine("3. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
+            sb.AppendLine("4. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
+            sb.AppendLine("5. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
+            sb.AppendLine("6. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
+            sb.AppendLine("7. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
+            sb.AppendLine("8. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
+            sb.AppendLine("9. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
             sb.AppendLine();
 
             sb.AppendLine("OUTPUT FORMAT (STRICT JSON):");
