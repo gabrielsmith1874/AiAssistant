@@ -11,6 +11,7 @@ using System.Windows.Threading;
 
 using System.Runtime.InteropServices;
 using System.Windows.Interop;
+using System.Collections.ObjectModel;
 using LiveTranscript.Models;
 using LiveTranscript.Services;
 
@@ -34,7 +35,7 @@ namespace LiveTranscript
         private List<OpenRouterModel> _allModels = new();
         private OpenRouterModel? _selectedModel;
         private AppSettings _settings = null!;
-        private readonly List<QuestionAnswer> _qaItems = new();
+        private readonly ObservableCollection<QuestionAnswer> _qaItems = new();
 
         // Auto-extract state
         private bool _autoExtractEnabled;
@@ -458,31 +459,34 @@ namespace LiveTranscript
                 await foreach (var chunk in _claudeService.StreamAnswerAsync(
                     apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume))
                 {
-                    if (firstChunk)
+                    Dispatcher.Invoke(() => 
                     {
-                        qa.ParagraphAnswer = "";
-                        firstChunk = false;
-                    }
+                        if (firstChunk)
+                        {
+                            qa.ParagraphAnswer = "";
+                            firstChunk = false;
+                        }
 
-                    qa.ParagraphAnswer += chunk;
-                    fullAnswer.Append(chunk);
-                    
-                    // Auto-scroll the QA list if it's the last item
-                    if (qa == _qaItems.LastOrDefault())
-                    {
-                        QaScroller.ScrollToEnd();
-                    }
+                        qa.ParagraphAnswer += chunk;
+                        fullAnswer.Append(chunk);
+                        
+                        // Auto-scroll the QA list if it's the last item
+                        if (qa == _qaItems.LastOrDefault())
+                        {
+                            QaScroller.ScrollToEnd();
+                        }
+                    });
                 }
 
                 // Tracking answered questions to avoid duplicates in future extractions
                 _claudeService.PreviouslyAnswered.Add($"Q: {qa.Question}\nA: {fullAnswer}");
                 
                 // Final UI update
-                AiStatusText.Text = $"{_qaItems.Count} questions extracted";
+                Dispatcher.Invoke(() => AiStatusText.Text = $"{_qaItems.Count} questions extracted");
             }
             catch (Exception ex)
             {
-                qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]";
+                Dispatcher.Invoke(() => qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]");
             }
         }
 
@@ -771,6 +775,8 @@ namespace LiveTranscript
                 _speakerClient?.Dispose();
                 _micClient = null;
                 _speakerClient = null;
+
+                QaList.ItemsSource = _qaItems;
 
                 var connectTasks = new List<Task>();
 

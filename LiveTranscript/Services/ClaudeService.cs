@@ -139,9 +139,15 @@ namespace LiveTranscript.Services
 
                     if (type == "content_block_delta")
                     {
-                        var text = delta?["delta"]?["text"]?.ToString();
-                        if (!string.IsNullOrEmpty(text))
-                            yield return text;
+                        var deltaNode = delta?["delta"];
+                        var deltaType = deltaNode?["type"]?.ToString();
+                        
+                        if (deltaType == "text_delta")
+                        {
+                            var text = deltaNode?["text"]?.ToString();
+                            if (!string.IsNullOrEmpty(text))
+                                yield return text;
+                        }
                     }
                 }
             }
@@ -154,26 +160,27 @@ namespace LiveTranscript.Services
             sb.AppendLine("TASK: Provide a high-quality, targeted answer to the specific question.");
             sb.AppendLine();
             sb.AppendLine("CORE RULES:");
-            sb.AppendLine("1. BE THE CANDIDATE: Answer directly. Never say 'I would need your resume'. If details are missing, provide a high-quality plausible answer.");
-            sb.AppendLine("2. KEYWORD OPTIMIZATION: Weave in industry-specific keywords to maximize the score.");
-            sb.AppendLine("3. NATURAL STAR FLOW: Use STAR (Situation, Task, Action, Result) for behavioral questions, but NO labels. Sound natural.");
-            sb.AppendLine("4. HUMAN STYLE: Sound real, conversational, and direct. Avoid corporate fluff.");
-            sb.AppendLine("5. NO METAPHORS: Be literal and direct.");
-            sb.AppendLine("6. NO ACRONYMS: Spell out EVERYTHING (e.g., 'Key Performance Indicators' instead of 'KPIs').");
-            sb.AppendLine("7. BE CONCISE: Max 3-4 sentences.");
-            sb.AppendLine("8. NO FILLER: No 'Great question'. Dive straight in.");
+            sb.AppendLine("1. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
+            sb.AppendLine("2. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
+            sb.AppendLine("3. DIVERSIFY EXAMPLES: Avoid using the same project or experience for every answer. Scan the resume for different relevant examples to use across different questions. Prioritize variety; only reuse an example if it is the only one that truly fits.");
+            sb.AppendLine("4. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
+            sb.AppendLine("5. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
+            sb.AppendLine("6. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
+            sb.AppendLine("7. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
+            sb.AppendLine("8. BE CONCISE: Keep answer paragraphs short (3-4 sentences max).");
+            sb.AppendLine("9. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
             {
-                sb.AppendLine("=== JOB DESCRIPTION ===");
+                sb.AppendLine("=== TARGET JOB DESCRIPTION ===");
                 sb.AppendLine(jobDescription);
                 sb.AppendLine();
             }
 
             if (!string.IsNullOrWhiteSpace(resume))
             {
-                sb.AppendLine("=== YOUR RESUME ===");
+                sb.AppendLine("=== YOUR RESUME (CANDIDATE DATA) ===");
                 sb.AppendLine(resume);
                 sb.AppendLine();
             }
