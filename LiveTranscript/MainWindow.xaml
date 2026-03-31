@@ -196,7 +196,7 @@
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>  <!-- Header -->
                         <RowDefinition Height="Auto"/>  <!-- Model picker controls -->
-                        <RowDefinition Height="160"/>   <!-- Model list -->
+                        <RowDefinition Height="Auto"/>   <!-- Model list / indicator -->
                         <RowDefinition Height="Auto"/>  <!-- Extract button -->
                         <RowDefinition Height="*"/>     <!-- Results -->
                     </Grid.RowDefinitions>
@@ -236,7 +236,7 @@
                         <StackPanel Orientation="Horizontal">
                             <TextBlock Text="🧠" FontSize="16" VerticalAlignment="Center"/>
                             <StackPanel Margin="8,0,0,0">
-                                <TextBlock Text="Claude 3.5 Haiku" FontSize="14" FontWeight="SemiBold"
+                                <TextBlock Text="Claude 4.5 Haiku" FontSize="14" FontWeight="SemiBold"
                                            Foreground="{StaticResource TextPrimaryBrush}"/>
                                 <TextBlock Text="Anthropic's fast, efficient model" FontSize="11"
                                            Foreground="{StaticResource TextSecondaryBrush}"/>
@@ -246,6 +246,7 @@
 
                     <!-- Model list -->
                     <ListView x:Name="ModelListView" Grid.Row="2" Margin="12,0,12,4"
+                              Height="160"
                               SelectionChanged="ModelList_SelectionChanged">
                             <ListView.View>
                                 <GridView>

@@ -180,8 +180,8 @@ namespace LiveTranscript
         {
             if (IsClaude)
             {
-                // Use Claude 3.5 Haiku as the default model
-                return "claude-3-5-haiku-20241022";
+                // Use Claude 4.5 Haiku as the default model
+                return "claude-haiku-4-5";
             }
             return _selectedModel?.Id ?? string.Empty;
         }
@@ -363,7 +363,7 @@ namespace LiveTranscript
             }
 
             var modelId = GetAiModelId();
-            var modelName = IsClaude ? "Claude 3.5 Haiku" : _selectedModel?.Name;
+            var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
 
             try
             {
