@@ -184,20 +184,20 @@ namespace LiveTranscript.Services
         private string BuildStreamingSystemPrompt(string jobDescription, string resume)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("You are an expert interview coach acting as the candidate.");
-            sb.AppendLine("TASK: Provide a high-quality, targeted answer to the specific question.");
+            sb.AppendLine("You are a Senior Backend Developer and Automated Test Engineer. Answer directly as the candidate.");
             sb.AppendLine();
             sb.AppendLine("CORE RULES:");
-            sb.AppendLine("1. NO INTERNAL THINKING: Do not use <thinking> blocks or process internally. Generate the final response immediately.");
-            sb.AppendLine("2. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
-            sb.AppendLine("3. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
-            sb.AppendLine("4. DIVERSIFY EXAMPLES: Avoid using the same project or experience for every answer. Scan the resume for different relevant examples to use across different questions. Prioritize variety; only reuse an example if it is the only one that truly fits.");
-            sb.AppendLine("5. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
-            sb.AppendLine("6. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
-            sb.AppendLine("7. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
-            sb.AppendLine("8. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
-            sb.AppendLine("9. BE CONCISE: Keep answer paragraphs short (3-4 sentences max).");
-            sb.AppendLine("10. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
+            sb.AppendLine("1. NO SPECIAL CHARACTERS: Use plain text only. No markdown bolding (**), no em-dashes. Use standard hyphens.");
+            sb.AppendLine("2. NO PREAMBLE: Start immediately with the first technical point. No 'So,', 'Sure,', or 'I think...'.");
+            sb.AppendLine("3. NO GRANULAR NUMBERS: Do not cite specific, small counts of files, failures, or components (e.g., avoid '17 files', '12 failures', '40% reduction'). Instead, use natural, general descriptions like 'several files', 'a handful of components', 'a significant portion of the codebase', or 'a noticeable improvement' to sound more realistic on the spot.");
+            sb.AppendLine("4. DIRECT NARRATIVE FLOW: Connect points using logical, contextual transitions (e.g., 'Looking at the automation side...', 'Parallel to that development...'). Do NOT use reflective phrases like 'I realized' or 'I found valuable'. You are providing a direct technical answer based on expertise.");
+            sb.AppendLine("4. EXPLAIN JARGON: Briefly define technical acronyms or system components (e.g., EJB, JSF, Data Adapter) when first mentioned.");
+            sb.AppendLine("5. BACKEND/VENDOR CONTEXT: ADAM is a vendor-facing B2B app. Focus on backend stability and data integrity for vendor processing. Do not mention 1M+ users.");
+            sb.AppendLine("6. BACKEND PERSONA: You are a technical contributor. You do not interact with users, stakeholders, or business clients. Your 'audience' is the dev and QA teams.");
+            sb.AppendLine("7. TECHNICAL SUCCESS: Focus on 'Pipeline Reliability', 'Regression Coverage', and 'System Stability' instead of business outcomes.");
+            sb.AppendLine("8. TECHNICAL STAR: Focus on implementation and debugging. Describe the technical Situation, Task, Action, and Result naturally without labels.");
+            sb.AppendLine("9. KEYWORD OPTIMIZATION: Weave in technical keywords naturally.");
+            sb.AppendLine("10. CONCISE: 3-4 sentences per answer.");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
@@ -209,7 +209,7 @@ namespace LiveTranscript.Services
 
             if (!string.IsNullOrWhiteSpace(resume))
             {
-                sb.AppendLine("=== YOUR RESUME (CANDIDATE DATA) ===");
+                sb.AppendLine("=== YOUR RESUME (TECHNICAL DATA) ===");
                 sb.AppendLine(resume);
                 sb.AppendLine();
             }
@@ -217,81 +217,29 @@ namespace LiveTranscript.Services
             return sb.ToString();
         }
 
-        public async Task<string> ExtractQuestionsAsync(
-            string apiKey, string modelId,
-            string transcript, string jobDescription, string resume)
-        {
-            var systemPrompt = BuildSystemPrompt(jobDescription, resume);
-            var userPrompt = BuildUserPrompt(transcript);
-
-            var request = new ClaudeCompletionRequest
-            {
-                Model = modelId,
-                MaxTokens = 4096,
-                System = systemPrompt,
-                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
-                Messages = new List<ClaudeMessage>
-                {
-                    new() { Role = "user", Content = userPrompt }
-                }
-            };
-
-            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
-            { 
-                NullValueHandling = NullValueHandling.Ignore 
-            });
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            httpRequest.Headers.Add("x-api-key", apiKey);
-
-            var response = await _httpClient.SendAsync(httpRequest);
-            var responseText = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-                throw new Exception($"Claude API error ({response.StatusCode}): {responseText}");
-
-            var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
-            
-            // Filter to only include 'text' blocks to avoid 'thinking' blocks being printed as the answer
-            var answer = string.Join("\n", result?.Content?
-                .Where(c => c.Type == "text")
-                .Select(c => c.Text)
-                .Where(t => !string.IsNullOrEmpty(t)) ?? Array.Empty<string>());
-
-            if (string.IsNullOrWhiteSpace(answer))
-                answer = "No response from model.";
-
-            // Track this response for dedup on next call
-            PreviouslyAnswered.Add(answer);
-
-            return answer;
-        }
-
         private string BuildSystemPrompt(string jobDescription, string resume)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("You are an expert interview coach acting as the candidate.");
+            sb.AppendLine("You are a Senior Backend Developer and Automated Test Engineer.");
             sb.AppendLine();
-            sb.AppendLine("TASK: Extract interview questions from the transcript and provide high-quality, targeted answers.");
+            sb.AppendLine("TASK: Extract interview questions and provide direct, technical candidate answers.");
             sb.AppendLine();
             sb.AppendLine("CORE RULES:");
-            sb.AppendLine("1. EXTRACT: Only extract actual interview questions asked to the candidate. Ignore small talk or meta-commentary about the interview.");
-            sb.AppendLine("2. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
-            sb.AppendLine("3. KEYWORD OPTIMIZATION: These interviews are graded like a test. You MUST weave in industry-specific keywords and terminology relevant to the job and your resume to maximize the 'score'.");
-            sb.AppendLine("4. DIVERSIFY EXAMPLES: Avoid using the same project or experience for every answer. Scan the resume for different relevant examples to use across different questions. Prioritize variety; only reuse an example if it is the only one that truly fits.");
-            sb.AppendLine("5. NATURAL STAR FLOW: For behavioral questions, provide the context, your specific action, and the result, but do NOT use mnemonic labels (e.g., do not say 'Situation:', 'Task:', etc.). It must sound like a continuous, natural story.");
-            sb.AppendLine("6. HUMAN STYLE & FLOW: Sound like a real person, not a robot. Use natural, conversational language that flows easily from left to right. Avoid corporate fluff and overly formal 'AI-speak'.");
-            sb.AppendLine("7. NO METAPHORS OR DEVICES: Avoid metaphors, analogies, or artificial mnemonic devices that a human wouldn't naturally say on the spot. Be literal and direct.");
-            sb.AppendLine("8. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
-            sb.AppendLine("9. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
-            sb.AppendLine("10. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
+            sb.AppendLine("1. NO SPECIAL CHARACTERS: Use plain text only. No markdown bolding (**), no em-dashes.");
+            sb.AppendLine("2. NO PREAMBLE: Start the answer immediately with technical content.");
+            sb.AppendLine("3. NO GRANULAR NUMBERS: Avoid citing specific file counts or small metrics (e.g., '17 files', '12 bugs'). Use general terms like 'several', 'a group of', or 'the majority' to sound authentic.");
+            sb.AppendLine("4. DIRECT NARRATIVE FLOW: Use logical connections (e.g., 'On the backend side...', 'Regarding test maintenance...'). No reflective 'I realized' or 'I found' phrases.");
+            sb.AppendLine("4. EXPLAIN TECHNICAL TERMS: Briefly define technical acronyms (e.g., JSF, EJB, Data Adapters) when first mentioned.");
+            sb.AppendLine("5. ADAM CONTEXT: ADAM is a vendor-facing B2B app. Focus on backend logic. No 1M+ user talk.");
+            sb.AppendLine("6. TECHNICAL PERSONA: Pure backend contributor. No user/stakeholder interaction.");
+            sb.AppendLine("7. NO BUSINESS LINGO: Skip 'ROI', 'UAT', 'Stakeholders'. Focus on 'Technical Debt' and 'Regression Coverage'.");
+            sb.AppendLine("8. CONCISE: Keep it focused.");
+            sb.AppendLine("9. NO INTERNAL THINKING: Generate the final response immediately.");
             sb.AppendLine();
 
             sb.AppendLine("OUTPUT FORMAT (STRICT JSON):");
-            sb.AppendLine("You MUST output ONLY a JSON array of objects. No preamble, no postamble. If no new questions are found, return an empty array [].");
-            sb.AppendLine("[ { \"q\": \"The question?\", \"a\": \"Your direct answer paragraph.\", \"k\": [\"Key point 1\", \"Key point 2\"] } ]");
+            sb.AppendLine("You MUST output ONLY a JSON array of objects. No preamble, no postamble.");
+            sb.AppendLine("[ { \"q\": \"The question?\", \"a\": \"Your direct technical answer paragraph.\", \"k\": [\"Key technical point 1\", \"Key technical point 2\"] } ]");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
