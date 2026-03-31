@@ -133,8 +133,18 @@
                         <RowDefinition Height="*"/>
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="📝 Transcript" FontSize="14" FontWeight="SemiBold" 
-                               Foreground="{StaticResource TextSecondaryBrush}" Margin="12,8,12,4"/>
+                    <Grid Margin="12,8,12,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="📝 Transcript" FontSize="14" FontWeight="SemiBold" 
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <Button Grid.Column="1" Content="Copy All" Style="{StaticResource OverlayButton}"
+                                Padding="10,4" FontSize="11" Margin="8,0,0,0"
+                                Click="CopyTranscriptAll_Click" ToolTip="Copy full transcript"/>
+                    </Grid>
                     <ScrollViewer Grid.Row="1" x:Name="TranscriptScroller"
                                   VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled"
@@ -158,11 +168,17 @@
                                                            Margin="10,0,0,0" VerticalAlignment="Center"
                                                            FontFamily="Segoe UI"/>
                                             </StackPanel>
-                                            <TextBlock Text="{Binding Text}"
-                                                       TextWrapping="Wrap"
-                                                       FontSize="14" LineHeight="20"
-                                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                                       FontFamily="Segoe UI"/>
+                                            <TextBox Text="{Binding Text}"
+                                                     IsReadOnly="True"
+                                                     BorderThickness="0"
+                                                     Background="Transparent"
+                                                     TextWrapping="Wrap"
+                                                     FontSize="14"
+                                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                                     FontFamily="Segoe UI"
+                                                     Padding="0"
+                                                     HorizontalScrollBarVisibility="Disabled"
+                                                     VerticalScrollBarVisibility="Disabled"/>
                                         </StackPanel>
                                     </Border>
                                 </DataTemplate>
@@ -185,12 +201,22 @@
                         <RowDefinition Height="*"/>     <!-- Results -->
                     </Grid.RowDefinitions>
 
-                    <TextBlock Text="🤖 AI Assistant" FontSize="14" FontWeight="SemiBold" 
-                               Foreground="{StaticResource TextSecondaryBrush}" Margin="12,8,12,4"/>
+                    <Grid Margin="12,8,12,4">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*"/>
+                            <ColumnDefinition Width="Auto"/>
+                        </Grid.ColumnDefinitions>
+
+                        <TextBlock Grid.Column="0" Text="🤖 AI Assistant" FontSize="14" FontWeight="SemiBold" 
+                                   Foreground="{StaticResource TextSecondaryBrush}"/>
+                        <Button Grid.Column="1" Content="Copy All" Style="{StaticResource OverlayButton}"
+                                Padding="10,4" FontSize="11" Margin="8,0,0,0"
+                                Click="CopyQaAll_Click" ToolTip="Copy all questions and answers"/>
+                    </Grid>
 
 
                     <!-- Model filter bar -->
-                    <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="12,4,12,4">
+                    <StackPanel x:Name="ModelFilterBar" Grid.Row="1" Orientation="Horizontal" Margin="12,4,12,4">
                             <TextBox x:Name="ModelSearchBox" Width="180"
                                      TextChanged="ModelSearch_Changed"
                                      Tag="Search models…"/>
@@ -201,6 +227,22 @@
                                     Padding="6,4" FontSize="11" Margin="8,0,0,0"
                                     Click="RefreshModels_Click" ToolTip="Refresh model list"/>
                         </StackPanel>
+
+                    <!-- Claude model indicator -->
+                    <Border x:Name="ClaudeModelIndicator" Grid.Row="2" Margin="12,4"
+                            Background="#FF2D3748" CornerRadius="8" Padding="12,8"
+                            VerticalAlignment="Top"
+                            Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="🧠" FontSize="16" VerticalAlignment="Center"/>
+                            <StackPanel Margin="8,0,0,0">
+                                <TextBlock Text="Claude 3.5 Haiku" FontSize="14" FontWeight="SemiBold"
+                                           Foreground="{StaticResource TextPrimaryBrush}"/>
+                                <TextBlock Text="Anthropic's fast, efficient model" FontSize="11"
+                                           Foreground="{StaticResource TextSecondaryBrush}"/>
+                            </StackPanel>
+                        </StackPanel>
+                    </Border>
 
                     <!-- Model list -->
                     <ListView x:Name="ModelListView" Grid.Row="2" Margin="12,0,12,4"
@@ -294,10 +336,18 @@
                                                         </Border>
 
                                                         <!-- Question text -->
-                                                        <TextBlock Grid.Column="1" Text="{Binding Question}"
-                                                                   TextWrapping="Wrap" FontSize="13" FontWeight="SemiBold"
-                                                                   Foreground="{StaticResource TextPrimaryBrush}"
-                                                                   FontFamily="Segoe UI" VerticalAlignment="Center"/>
+                                                        <TextBox Grid.Column="1" Text="{Binding Question}"
+                                                                 IsReadOnly="True"
+                                                                 BorderThickness="0"
+                                                                 Background="Transparent"
+                                                                 TextWrapping="Wrap"
+                                                                 FontSize="13" FontWeight="SemiBold"
+                                                                 Foreground="{StaticResource TextPrimaryBrush}"
+                                                                 FontFamily="Segoe UI"
+                                                                 Padding="0"
+                                                                 VerticalAlignment="Center"
+                                                                 HorizontalScrollBarVisibility="Disabled"
+                                                                 VerticalScrollBarVisibility="Disabled"/>
 
                                                         <!-- Expand/collapse toggle -->
                                                         <Button Grid.Column="2" Style="{StaticResource OverlayButton}"
@@ -328,20 +378,32 @@
                                                         <!-- Paragraph answer -->
                                                         <Border Background="#10FFFFFF" CornerRadius="6"
                                                                 Padding="10,8" Margin="0,0,0,6">
-                                                            <TextBlock Text="{Binding ParagraphAnswer}"
-                                                                       TextWrapping="Wrap" FontSize="12.5"
-                                                                       LineHeight="19"
-                                                                       Foreground="{StaticResource TextPrimaryBrush}"
-                                                                       FontFamily="Segoe UI"/>
+                                                            <TextBox Text="{Binding ParagraphAnswer}"
+                                                                     IsReadOnly="True"
+                                                                     BorderThickness="0"
+                                                                     Background="Transparent"
+                                                                     TextWrapping="Wrap"
+                                                                     FontSize="12.5"
+                                                                     Foreground="{StaticResource TextPrimaryBrush}"
+                                                                     FontFamily="Segoe UI"
+                                                                     Padding="0"
+                                                                     HorizontalScrollBarVisibility="Disabled"
+                                                                     VerticalScrollBarVisibility="Disabled"/>
                                                         </Border>
 
                                                         <!-- Key points -->
-                                                        <TextBlock Text="{Binding KeyPoints}"
-                                                                   TextWrapping="Wrap" FontSize="12"
-                                                                   LineHeight="18"
-                                                                   Foreground="{StaticResource TextSecondaryBrush}"
-                                                                   FontFamily="Segoe UI"
-                                                                   Margin="4,0,0,0"/>
+                                                        <TextBox Text="{Binding KeyPoints}"
+                                                                 IsReadOnly="True"
+                                                                 BorderThickness="0"
+                                                                 Background="Transparent"
+                                                                 TextWrapping="Wrap"
+                                                                 FontSize="12"
+                                                                 Foreground="{StaticResource TextSecondaryBrush}"
+                                                                 FontFamily="Segoe UI"
+                                                                 Margin="4,0,0,0"
+                                                                 Padding="0"
+                                                                 HorizontalScrollBarVisibility="Disabled"
+                                                                 VerticalScrollBarVisibility="Disabled"/>
                                                     </StackPanel>
                                                 </StackPanel>
                                             </Border>
@@ -362,10 +424,24 @@
                         <TextBlock Text="⚙ Settings" FontSize="16" FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
 
+                        <!-- AI Provider -->
+                        <TextBlock Text="AI Provider" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="SettingsAiProvider" Margin="0,0,0,12"
+                                  SelectedIndex="0">
+                            <ComboBoxItem Content="OpenRouter"/>
+                            <ComboBoxItem Content="Claude (Anthropic)"/>
+                        </ComboBox>
+
                         <!-- OpenRouter API Key -->
                         <TextBlock Text="OpenRouter API Key" FontSize="11"
                                    Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
                         <TextBox x:Name="SettingsApiKey" Margin="0,0,0,12"/>
+
+                        <!-- Claude API Key -->
+                        <TextBlock Text="Claude API Key" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <TextBox x:Name="SettingsClaudeApiKey" Margin="0,0,0,12"/>
 
                         <!-- AssemblyAI API Key -->
                         <TextBlock Text="AssemblyAI API Key (Required for Speaker Mode)" FontSize="11"

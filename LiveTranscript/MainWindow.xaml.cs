@@ -23,6 +23,7 @@ namespace LiveTranscript
         private ITranscriptionClient? _speakerClient;
         private readonly TranscriptManager _transcriptManager;
         private readonly OpenRouterService _openRouterService;
+        private readonly ClaudeService _claudeService;
         private SessionState _state = SessionState.Idle;
         private bool _isPinned = true;
 
@@ -60,6 +61,7 @@ namespace LiveTranscript
             _audioService = new AudioCaptureService();
             _transcriptManager = new TranscriptManager(Dispatcher);
             _openRouterService = new OpenRouterService();
+            _claudeService = new ClaudeService();
 
             // Hook up hotkeys
             KeyDown += Window_KeyDown;
@@ -167,6 +169,22 @@ namespace LiveTranscript
         };
 
         private bool IsDeepgram => ProviderSelector.SelectedIndex == 1;
+        private bool IsClaude => _settings.AiProvider == "Claude";
+
+        private string GetAiApiKey()
+        {
+            return IsClaude ? _settings.ClaudeApiKey : _settings.OpenRouterApiKey;
+        }
+
+        private string GetAiModelId()
+        {
+            if (IsClaude)
+            {
+                // Use Claude 3.5 Haiku as the default model
+                return "claude-3-5-haiku-20241022";
+            }
+            return _selectedModel?.Id ?? string.Empty;
+        }
 
         private string GetApiKey()
         {
@@ -186,15 +204,34 @@ namespace LiveTranscript
         {
             _settings = AppSettings.Load();
             SettingsApiKey.Text = _settings.OpenRouterApiKey;
+            SettingsClaudeApiKey.Text = _settings.ClaudeApiKey;
             SettingsAssemblyKey.Text = _settings.AssemblyAiApiKey;
             SettingsDeepgramKey.Text = _settings.DeepgramApiKey;
             SettingsJobDesc.Text = _settings.JobDescription;
             SettingsResume.Text = _settings.Resume;
 
+            // Load AI provider selection
+            SettingsAiProvider.SelectedIndex = _settings.AiProvider == "Claude" ? 1 : 0;
+            UpdateModelBrowserVisibility();
+
             if (string.IsNullOrEmpty(_settings.AssemblyAiApiKey) && string.IsNullOrEmpty(_settings.DeepgramApiKey))
                 UpdateStatus("⚠ Set API key(s) in Settings", isError: true);
             else
                 UpdateStatus("Ready — Press Start to begin");
+        }
+
+        private void UpdateModelBrowserVisibility()
+        {
+            var isClaude = _settings.AiProvider == "Claude";
+            
+            // Toggle visibility of model browser vs Claude indicator
+            ModelFilterBar.Visibility = isClaude ? Visibility.Collapsed : Visibility.Visible;
+            ModelListView.Visibility = isClaude ? Visibility.Collapsed : Visibility.Visible;
+            ClaudeModelIndicator.Visibility = isClaude ? Visibility.Visible : Visibility.Collapsed;
+
+            // Enable extract buttons when Claude is selected (no model selection needed)
+            ExtractButton.IsEnabled = isClaude || _selectedModel != null;
+            AutoExtractButton.IsEnabled = isClaude || _selectedModel != null;
         }
 
 
@@ -309,12 +346,12 @@ namespace LiveTranscript
 
         private async void Extract_Click(object sender, RoutedEventArgs e)
         {
-            if (_selectedModel == null) return;
+            if (!IsClaude && _selectedModel == null) return;
 
-            var apiKey = _settings.OpenRouterApiKey;
+            var apiKey = GetAiApiKey();
             if (string.IsNullOrEmpty(apiKey))
             {
-                UpdateStatus("⚠ Set OpenRouter API key in Settings", isError: true);
+                UpdateStatus($"⚠ Set {(IsClaude ? "Claude" : "OpenRouter")} API key in Settings", isError: true);
                 return;
             }
 
@@ -325,16 +362,29 @@ namespace LiveTranscript
                 return;
             }
 
+            var modelId = GetAiModelId();
+            var modelName = IsClaude ? "Claude 3.5 Haiku" : _selectedModel?.Name;
+
             try
             {
                 ExtractButton.IsEnabled = false;
                 ExtractButton.Content = "⏳  Analyzing…";
-                AiStatusText.Text = $"Sending to {_selectedModel.Name}…";
-                UpdateStatus($"Sending to {_selectedModel.Name}…");
+                AiStatusText.Text = $"Sending to {modelName}…";
+                UpdateStatus($"Sending to {modelName}…");
 
-                var rawResult = await _openRouterService.ExtractQuestionsAsync(
-                    apiKey, _selectedModel.Id,
-                    transcript, _settings.JobDescription, _settings.Resume);
+                string rawResult;
+                if (IsClaude)
+                {
+                    rawResult = await _claudeService.ExtractQuestionsAsync(
+                        apiKey, modelId,
+                        transcript, _settings.JobDescription, _settings.Resume);
+                }
+                else
+                {
+                    rawResult = await _openRouterService.ExtractQuestionsAsync(
+                        apiKey, modelId,
+                        transcript, _settings.JobDescription, _settings.Resume);
+                }
 
                 var newItems = QuestionAnswer.Parse(rawResult);
 
@@ -373,10 +423,11 @@ namespace LiveTranscript
         private void ClearAiHistory_Click(object sender, RoutedEventArgs e)
         {
             _openRouterService.ClearHistory();
+            _claudeService.ClearHistory();
             _qaItems.Clear();
             _lastExtractedEntryIndex = 0;
             QaList.ItemsSource = null;
-            AiStatusText.Text = "Select a model and click Extract Questions";
+            AiStatusText.Text = IsClaude ? "Click Extract Questions" : "Select a model and click Extract Questions";
             UpdateStatus("AI history cleared");
         }
 
@@ -435,9 +486,9 @@ namespace LiveTranscript
         /// </summary>
         private async Task RunAutoExtractAsync()
         {
-            if (_isExtracting || _selectedModel == null) return;
+            if (_isExtracting || (!IsClaude && _selectedModel == null)) return;
 
-            var apiKey = _settings.OpenRouterApiKey;
+            var apiKey = GetAiApiKey();
             if (string.IsNullOrEmpty(apiKey)) return;
 
             // Build incremental transcript (only new entries)
@@ -456,11 +507,22 @@ namespace LiveTranscript
             _isExtracting = true;
             try
             {
+                var modelId = GetAiModelId();
                 AiStatusText.Text = $"Auto-extracting ({wordCount} new words)…";
 
-                var rawResult = await _openRouterService.ExtractQuestionsAsync(
-                    apiKey, _selectedModel.Id,
-                    newText, _settings.JobDescription, _settings.Resume);
+                string rawResult;
+                if (IsClaude)
+                {
+                    rawResult = await _claudeService.ExtractQuestionsAsync(
+                        apiKey, modelId,
+                        newText, _settings.JobDescription, _settings.Resume);
+                }
+                else
+                {
+                    rawResult = await _openRouterService.ExtractQuestionsAsync(
+                        apiKey, modelId,
+                        newText, _settings.JobDescription, _settings.Resume);
+                }
 
                 _lastExtractedEntryIndex = entries.Count;
 
@@ -518,6 +580,53 @@ namespace LiveTranscript
             return sb.ToString().Trim();
         }
 
+        private void CopyTranscriptAll_Click(object sender, RoutedEventArgs e)
+        {
+            var text = BuildTranscriptText();
+            if (string.IsNullOrWhiteSpace(text))
+            {
+                UpdateStatus("⚠ No transcript to copy", isError: true);
+                return;
+            }
+
+            Clipboard.SetText(text);
+            UpdateStatus("📋 Transcript copied");
+        }
+
+        private void CopyQaAll_Click(object sender, RoutedEventArgs e)
+        {
+            if (_qaItems.Count == 0)
+            {
+                UpdateStatus("⚠ No questions to copy", isError: true);
+                return;
+            }
+
+            var sb = new StringBuilder();
+            foreach (var qa in _qaItems)
+            {
+                sb.AppendLine($"Q{qa.Number}: {qa.Question}".Trim());
+                if (!string.IsNullOrWhiteSpace(qa.ParagraphAnswer))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(qa.ParagraphAnswer.Trim());
+                }
+
+                if (!string.IsNullOrWhiteSpace(qa.KeyPoints))
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(qa.KeyPoints.Trim());
+                }
+
+                sb.AppendLine();
+                sb.AppendLine(new string('-', 32));
+                sb.AppendLine();
+            }
+
+            var text = sb.ToString().Trim();
+            Clipboard.SetText(text);
+            UpdateStatus("📋 Q&A copied");
+        }
+
         // Settings events
         private void Settings_Click(object sender, RoutedEventArgs e)
         {
@@ -529,11 +638,14 @@ namespace LiveTranscript
         private void SaveSettings_Click(object sender, RoutedEventArgs e)
         {
             _settings.OpenRouterApiKey = SettingsApiKey.Text.Trim();
+            _settings.ClaudeApiKey = SettingsClaudeApiKey.Text.Trim();
             _settings.AssemblyAiApiKey = SettingsAssemblyKey.Text.Trim();
             _settings.DeepgramApiKey = SettingsDeepgramKey.Text.Trim();
             _settings.JobDescription = SettingsJobDesc.Text.Trim();
             _settings.Resume = SettingsResume.Text.Trim();
+            _settings.AiProvider = SettingsAiProvider.SelectedIndex == 1 ? "Claude" : "OpenRouter";
             _settings.Save();
+            UpdateModelBrowserVisibility();
             UpdateStatus("Settings saved ✓");
             SettingsPanel.Visibility = Visibility.Collapsed;
         }

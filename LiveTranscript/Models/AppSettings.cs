@@ -30,11 +30,13 @@ namespace LiveTranscript.Models
         }
 
         public string OpenRouterApiKey { get; set; } = string.Empty;
+        public string ClaudeApiKey { get; set; } = string.Empty;
         public string AssemblyAiApiKey { get; set; } = string.Empty;
         public string DeepgramApiKey { get; set; } = string.Empty;
         public string JobDescription { get; set; } = string.Empty;
         public string Resume { get; set; } = string.Empty;
         public string SelectedModelId { get; set; } = string.Empty;
+        public string AiProvider { get; set; } = "OpenRouter";
 
         // Window Persistence
         public double WindowTop { get; set; } = -1;
