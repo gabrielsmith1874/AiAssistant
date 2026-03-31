@@ -94,7 +94,7 @@ namespace LiveTranscript.Services
             sb.AppendLine();
             sb.AppendLine("CORE RULES:");
             sb.AppendLine("1. EXTRACT: Only extract actual interview questions asked to the candidate. Ignore small talk or meta-commentary about the interview.");
-            sb.AppendLine("2. BE THE CANDIDATE: Answer as if you are the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. Just give the answer.");
+            sb.AppendLine("2. BE THE CANDIDATE: Answer directly as the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. If details are missing from the resume, provide a plausible, high-quality answer based on common industry standards for the role.");
             sb.AppendLine("3. USE THE RESUME: Use the provided resume to give specific, concrete examples. If a question is about experience, draw directly from the resume projects and metrics.");
             sb.AppendLine("4. STAR METHOD: For behavioral questions, use the STAR method (Situation, Task, Action, Result). Be specific but extremely concise.");
             sb.AppendLine("5. HUMAN STYLE: Sound like a real person, not a robot. Use natural, conversational language. Avoid corporate fluff and overly formal 'AI-speak'.");
