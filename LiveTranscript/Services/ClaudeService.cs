@@ -69,7 +69,15 @@ namespace LiveTranscript.Services
                 throw new Exception($"Claude API error ({response.StatusCode}): {responseText}");
 
             var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
-            var answer = result?.Content?.FirstOrDefault()?.Text ?? "No response from model.";
+            
+            // Filter to only include 'text' blocks to avoid 'thinking' blocks being printed as the answer
+            var answer = string.Join("\n", result?.Content?
+                .Where(c => c.Type == "text")
+                .Select(c => c.Text)
+                .Where(t => !string.IsNullOrEmpty(t)) ?? Array.Empty<string>());
+
+            if (string.IsNullOrWhiteSpace(answer))
+                answer = "No response from model.";
 
             // Track this response for dedup on next call
             PreviouslyAnswered.Add(answer);
@@ -80,39 +88,37 @@ namespace LiveTranscript.Services
         private string BuildSystemPrompt(string jobDescription, string resume)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("You are an expert interview coach acting as a candidate.");
+            sb.AppendLine("You are an expert interview coach acting as the candidate.");
             sb.AppendLine();
-            sb.AppendLine("TASK: Extract interview questions from the transcript and answer them.");
+            sb.AppendLine("TASK: Extract interview questions from the transcript and provide high-quality, targeted answers.");
             sb.AppendLine();
-            sb.AppendLine("RULES:");
-            sb.AppendLine("1. EXTRACT: Questions asked by the INTERVIEWER. Ignore chat about the interview itself.");
-            sb.AppendLine("   - Example: \"Did they ask about arrays?\" -> Ignore.");
-            sb.AppendLine("   - Example: \"What is an array?\" -> EXTRACT.");
-            sb.AppendLine("2. ANSWER: Be direct. No filler (\"Great question\", \"I believe\").");
-            sb.AppendLine("   - KNOWLEDGE Qs: Define concept clearly first. Optional: 1 sentence experience.");
-            sb.AppendLine("   - BEHAVIORAL Qs: Use experience from RESUME. Be specific (Situation, Action, Result).");
-            sb.AppendLine("3. STYLE: Conversational, confident, professional. No corporate fluff.");
-            sb.AppendLine();
-
-            sb.AppendLine("OUTPUT JSON ARRAY:");
-            sb.AppendLine("[ { \"q\": \"Question text?\", \"a\": \"Direct answer paragraph.\", \"k\": [\"Key point 1\", \"Key point 2\"] } ]");
-            sb.AppendLine();
-            sb.AppendLine("---");
+            sb.AppendLine("CORE RULES:");
+            sb.AppendLine("1. EXTRACT: Only extract actual interview questions asked to the candidate. Ignore small talk or meta-commentary about the interview.");
+            sb.AppendLine("2. BE THE CANDIDATE: Answer as if you are the person being interviewed. Never say 'I would need your resume' or 'Focus on...'. Just give the answer.");
+            sb.AppendLine("3. USE THE RESUME: Use the provided resume to give specific, concrete examples. If a question is about experience, draw directly from the resume projects and metrics.");
+            sb.AppendLine("4. STAR METHOD: For behavioral questions, use the STAR method (Situation, Task, Action, Result). Be specific but extremely concise.");
+            sb.AppendLine("5. HUMAN STYLE: Sound like a real person, not a robot. Use natural, conversational language. Avoid corporate fluff and overly formal 'AI-speak'.");
+            sb.AppendLine("6. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
+            sb.AppendLine("7. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
             sb.AppendLine();
 
+            sb.AppendLine("OUTPUT FORMAT (STRICT JSON):");
+            sb.AppendLine("You MUST output ONLY a JSON array of objects. No preamble, no postamble. If no new questions are found, return an empty array [].");
+            sb.AppendLine("[ { \"q\": \"The question?\", \"a\": \"Your direct answer paragraph.\", \"k\": [\"Key point 1\", \"Key point 2\"] } ]");
+            sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
             {
-                sb.AppendLine();
-                sb.AppendLine("=== JOB ===");
+                sb.AppendLine("=== TARGET JOB DESCRIPTION ===");
                 sb.AppendLine(jobDescription);
+                sb.AppendLine();
             }
 
             if (!string.IsNullOrWhiteSpace(resume))
             {
-                sb.AppendLine();
-                sb.AppendLine("=== RESUME ===");
+                sb.AppendLine("=== YOUR RESUME (CANDIDATE DATA) ===");
                 sb.AppendLine(resume);
+                sb.AppendLine();
             }
 
             return sb.ToString();
@@ -206,7 +212,10 @@ namespace LiveTranscript.Services
         public string Type { get; set; } = string.Empty;
 
         [JsonProperty("text")]
-        public string Text { get; set; } = string.Empty;
+        public string? Text { get; set; }
+
+        [JsonProperty("thinking")]
+        public string? Thinking { get; set; }
     }
 
     public class ClaudeUsage
