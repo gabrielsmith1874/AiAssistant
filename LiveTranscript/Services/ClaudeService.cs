@@ -98,8 +98,9 @@ namespace LiveTranscript.Services
             sb.AppendLine("3. USE THE RESUME: Use the provided resume to give specific, concrete examples. If a question is about experience, draw directly from the resume projects and metrics.");
             sb.AppendLine("4. STAR METHOD: For behavioral questions, use the STAR method (Situation, Task, Action, Result). Be specific but extremely concise.");
             sb.AppendLine("5. HUMAN STYLE: Sound like a real person, not a robot. Use natural, conversational language. Avoid corporate fluff and overly formal 'AI-speak'.");
-            sb.AppendLine("6. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
-            sb.AppendLine("7. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
+            sb.AppendLine("6. NO ACRONYMS: Do not use any acronyms (e.g., STAR, KPI, API, ROI, etc.). Always spell out the full terms (e.g., 'Key Performance Indicators' instead of 'KPIs').");
+            sb.AppendLine("7. BE CONCISE: Keep answer paragraphs short (3-4 sentences max). Use clear, punchy key points.");
+            sb.AppendLine("8. NO FILLER: Never start with 'That's a great question', 'Certainly', or 'Based on my resume'. Dive straight into the answer.");
             sb.AppendLine();
 
             sb.AppendLine("OUTPUT FORMAT (STRICT JSON):");
