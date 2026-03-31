@@ -369,34 +369,24 @@ namespace LiveTranscript
             {
                 ExtractButton.IsEnabled = false;
                 ExtractButton.Content = "⏳  Analyzing…";
-                AiStatusText.Text = $"Sending to {modelName}…";
-                UpdateStatus($"Sending to {modelName}…");
+                AiStatusText.Text = $"Extracting questions with {modelName}…";
+                UpdateStatus($"Extracting questions with {modelName}…");
 
-                string rawResult;
+                List<string> questionTexts;
                 if (IsClaude)
                 {
-                    rawResult = await _claudeService.ExtractQuestionsAsync(
-                        apiKey, modelId,
-                        transcript, _settings.JobDescription, _settings.Resume);
+                    questionTexts = await _claudeService.ExtractQuestionTextsOnlyAsync(apiKey, modelId, transcript);
                 }
                 else
                 {
-                    rawResult = await _openRouterService.ExtractQuestionsAsync(
+                    // Fallback for OpenRouter (non-streaming for now to keep it simple)
+                    var rawResult = await _openRouterService.ExtractQuestionsAsync(
                         apiKey, modelId,
                         transcript, _settings.JobDescription, _settings.Resume);
-                }
-
-                var newItems = QuestionAnswer.Parse(rawResult);
-
-                if (newItems.Count == 0)
-                {
-                    AiStatusText.Text = "No new questions detected.";
-                }
-                else
-                {
-                    // Renumber to continue from existing
+                    var openRouterItems = QuestionAnswer.Parse(rawResult);
+                    
                     int startNum = _qaItems.Count;
-                    foreach (var item in newItems)
+                    foreach (var item in openRouterItems)
                     {
                         item.Number = ++startNum;
                         _qaItems.Add(item);
@@ -404,6 +394,44 @@ namespace LiveTranscript
                     QaList.ItemsSource = null;
                     QaList.ItemsSource = _qaItems;
                     AiStatusText.Text = $"{_qaItems.Count} questions extracted";
+                    return;
+                }
+
+                if (questionTexts.Count == 0)
+                {
+                    AiStatusText.Text = "No new questions detected.";
+                }
+                else
+                {
+                    int startNum = _qaItems.Count;
+                    var newQas = new List<QuestionAnswer>();
+
+                    foreach (var qText in questionTexts)
+                    {
+                        // Check if we already have this exact question to avoid duplicates
+                        if (_qaItems.Any(existing => existing.Question.Equals(qText, StringComparison.OrdinalIgnoreCase)))
+                            continue;
+
+                        var qa = new QuestionAnswer
+                        {
+                            Number = ++startNum,
+                            Question = qText,
+                            ParagraphAnswer = "⏳ Thinking...",
+                            IsExpanded = true
+                        };
+                        _qaItems.Add(qa);
+                        newQas.Add(qa);
+                    }
+
+                    QaList.ItemsSource = null;
+                    QaList.ItemsSource = _qaItems;
+                    AiStatusText.Text = $"{_qaItems.Count} questions found. Streaming answers...";
+
+                    // Start streaming answers in background for each NEW question
+                    foreach (var qa in newQas)
+                    {
+                        _ = ProcessStreamingAnswer(qa, apiKey, modelId, transcript);
+                    }
                 }
 
                 UpdateStatus("✅ Questions extracted");
@@ -417,6 +445,44 @@ namespace LiveTranscript
             {
                 ExtractButton.Content = "🧠  Extract Questions";
                 ExtractButton.IsEnabled = true;
+            }
+        }
+
+        private async Task ProcessStreamingAnswer(QuestionAnswer qa, string apiKey, string modelId, string transcript)
+        {
+            try
+            {
+                var firstChunk = true;
+                var fullAnswer = new StringBuilder();
+
+                await foreach (var chunk in _claudeService.StreamAnswerAsync(
+                    apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume))
+                {
+                    if (firstChunk)
+                    {
+                        qa.ParagraphAnswer = "";
+                        firstChunk = false;
+                    }
+
+                    qa.ParagraphAnswer += chunk;
+                    fullAnswer.Append(chunk);
+                    
+                    // Auto-scroll the QA list if it's the last item
+                    if (qa == _qaItems.LastOrDefault())
+                    {
+                        QaScroller.ScrollToEnd();
+                    }
+                }
+
+                // Tracking answered questions to avoid duplicates in future extractions
+                _claudeService.PreviouslyAnswered.Add($"Q: {qa.Question}\nA: {fullAnswer}");
+                
+                // Final UI update
+                AiStatusText.Text = $"{_qaItems.Count} questions extracted";
+            }
+            catch (Exception ex)
+            {
+                qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]";
             }
         }
 
@@ -508,40 +574,69 @@ namespace LiveTranscript
             try
             {
                 var modelId = GetAiModelId();
+                var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
                 AiStatusText.Text = $"Auto-extracting ({wordCount} new words)…";
 
-                string rawResult;
                 if (IsClaude)
                 {
-                    rawResult = await _claudeService.ExtractQuestionsAsync(
-                        apiKey, modelId,
-                        newText, _settings.JobDescription, _settings.Resume);
-                }
-                else
-                {
-                    rawResult = await _openRouterService.ExtractQuestionsAsync(
-                        apiKey, modelId,
-                        newText, _settings.JobDescription, _settings.Resume);
-                }
+                    var questionTexts = await _claudeService.ExtractQuestionTextsOnlyAsync(apiKey, modelId, newText);
+                    _lastExtractedEntryIndex = entries.Count;
 
-                _lastExtractedEntryIndex = entries.Count;
-
-                var newItems = QuestionAnswer.Parse(rawResult);
-                if (newItems.Count > 0)
-                {
-                    int startNum = _qaItems.Count;
-                    foreach (var item in newItems)
+                    if (questionTexts.Count > 0)
                     {
-                        item.Number = ++startNum;
-                        _qaItems.Add(item);
+                        int startNum = _qaItems.Count;
+                        var newQas = new List<QuestionAnswer>();
+
+                        foreach (var qText in questionTexts)
+                        {
+                            if (_qaItems.Any(existing => existing.Question.Equals(qText, StringComparison.OrdinalIgnoreCase)))
+                                continue;
+
+                            var qa = new QuestionAnswer
+                            {
+                                Number = ++startNum,
+                                Question = qText,
+                                ParagraphAnswer = "⏳ Thinking...",
+                                IsExpanded = true
+                            };
+                            _qaItems.Add(qa);
+                            newQas.Add(qa);
+                        }
+
+                        if (newQas.Count > 0)
+                        {
+                            QaList.ItemsSource = null;
+                            QaList.ItemsSource = _qaItems;
+                            AiStatusText.Text = $"{_qaItems.Count} questions found (auto). Streaming...";
+
+                            foreach (var qa in newQas)
+                            {
+                                _ = ProcessStreamingAnswer(qa, apiKey, modelId, BuildTranscriptText());
+                            }
+                        }
                     }
-                    QaList.ItemsSource = null;
-                    QaList.ItemsSource = _qaItems;
-                    AiStatusText.Text = $"{_qaItems.Count} questions extracted (auto)";
                 }
                 else
                 {
-                    AiStatusText.Text = $"{_qaItems.Count} questions — no new ones detected";
+                    var rawResult = await _openRouterService.ExtractQuestionsAsync(
+                        apiKey, modelId,
+                        newText, _settings.JobDescription, _settings.Resume);
+
+                    _lastExtractedEntryIndex = entries.Count;
+
+                    var newItems = QuestionAnswer.Parse(rawResult);
+                    if (newItems.Count > 0)
+                    {
+                        int startNum = _qaItems.Count;
+                        foreach (var item in newItems)
+                        {
+                            item.Number = ++startNum;
+                            _qaItems.Add(item);
+                        }
+                        QaList.ItemsSource = null;
+                        QaList.ItemsSource = _qaItems;
+                        AiStatusText.Text = $"{_qaItems.Count} questions extracted (auto)";
+                    }
                 }
             }
             catch (Exception ex)

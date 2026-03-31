@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using LiveTranscript.Models;
 using Newtonsoft.Json;
@@ -37,6 +38,149 @@ namespace LiveTranscript.Services
         /// Sends the transcript to Claude to extract and answer
         /// interview questions as the candidate. Skips previously answered questions.
         /// </summary>
+        public async Task<List<string>> ExtractQuestionTextsOnlyAsync(
+            string apiKey, string modelId,
+            string transcript)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("You are an expert interviewer. Extract only the question texts asked to the candidate from the transcript.");
+            sb.AppendLine("OUTPUT FORMAT: Return ONLY a JSON array of strings. No preamble.");
+            sb.AppendLine("Example: [ \"What is an array?\", \"Tell me about a time you failed.\" ]");
+
+            var request = new ClaudeCompletionRequest
+            {
+                Model = modelId,
+                MaxTokens = 1024,
+                System = sb.ToString(),
+                Messages = new List<ClaudeMessage>
+                {
+                    new() { Role = "user", Content = $"TRANSCRIPT:\n{transcript}" }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("x-api-key", apiKey);
+
+            var response = await _httpClient.SendAsync(httpRequest);
+            var responseText = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+                throw new Exception($"Extraction error: {responseText}");
+
+            var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
+            var text = result?.Content?.FirstOrDefault()?.Text ?? "[]";
+            
+            try 
+            {
+                return JsonConvert.DeserializeObject<List<string>>(text) ?? new List<string>();
+            }
+            catch 
+            {
+                // Fallback: search for array-like structure
+                var match = Regex.Match(text, @"\[.*\]", RegexOptions.Singleline);
+                if (match.Success)
+                    return JsonConvert.DeserializeObject<List<string>>(match.Value) ?? new List<string>();
+                return new List<string>();
+            }
+        }
+
+        public async IAsyncEnumerable<string> StreamAnswerAsync(
+            string apiKey, string modelId,
+            string question, string transcript, string jobDescription, string resume)
+        {
+            var systemPrompt = BuildStreamingSystemPrompt(jobDescription, resume);
+            var userPrompt = $"QUESTION: {question}\n\nCONTEXT TRANSCRIPT:\n{transcript}";
+
+            var request = new ClaudeCompletionRequest
+            {
+                Model = modelId,
+                MaxTokens = 2048,
+                System = systemPrompt,
+                Stream = true,
+                Messages = new List<ClaudeMessage>
+                {
+                    new() { Role = "user", Content = userPrompt }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("x-api-key", apiKey);
+
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                yield return $"[Error: {error}]";
+                yield break;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            using var reader = new System.IO.StreamReader(stream);
+
+            while (!reader.EndOfStream)
+            {
+                var line = await reader.ReadLineAsync();
+                if (string.IsNullOrWhiteSpace(line)) continue;
+                if (line.StartsWith("data: "))
+                {
+                    var data = line.Substring(6);
+                    if (data == "[DONE]") break;
+
+                    var delta = JsonConvert.DeserializeObject<JObject>(data);
+                    var type = delta?["type"]?.ToString();
+
+                    if (type == "content_block_delta")
+                    {
+                        var text = delta?["delta"]?["text"]?.ToString();
+                        if (!string.IsNullOrEmpty(text))
+                            yield return text;
+                    }
+                }
+            }
+        }
+
+        private string BuildStreamingSystemPrompt(string jobDescription, string resume)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("You are an expert interview coach acting as the candidate.");
+            sb.AppendLine("TASK: Provide a high-quality, targeted answer to the specific question.");
+            sb.AppendLine();
+            sb.AppendLine("CORE RULES:");
+            sb.AppendLine("1. BE THE CANDIDATE: Answer directly. Never say 'I would need your resume'. If details are missing, provide a high-quality plausible answer.");
+            sb.AppendLine("2. KEYWORD OPTIMIZATION: Weave in industry-specific keywords to maximize the score.");
+            sb.AppendLine("3. NATURAL STAR FLOW: Use STAR (Situation, Task, Action, Result) for behavioral questions, but NO labels. Sound natural.");
+            sb.AppendLine("4. HUMAN STYLE: Sound real, conversational, and direct. Avoid corporate fluff.");
+            sb.AppendLine("5. NO METAPHORS: Be literal and direct.");
+            sb.AppendLine("6. NO ACRONYMS: Spell out EVERYTHING (e.g., 'Key Performance Indicators' instead of 'KPIs').");
+            sb.AppendLine("7. BE CONCISE: Max 3-4 sentences.");
+            sb.AppendLine("8. NO FILLER: No 'Great question'. Dive straight in.");
+            sb.AppendLine();
+
+            if (!string.IsNullOrWhiteSpace(jobDescription))
+            {
+                sb.AppendLine("=== JOB DESCRIPTION ===");
+                sb.AppendLine(jobDescription);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(resume))
+            {
+                sb.AppendLine("=== YOUR RESUME ===");
+                sb.AppendLine(resume);
+                sb.AppendLine();
+            }
+
+            return sb.ToString();
+        }
+
         public async Task<string> ExtractQuestionsAsync(
             string apiKey, string modelId,
             string transcript, string jobDescription, string resume)
@@ -165,6 +309,9 @@ namespace LiveTranscript.Services
 
         [JsonProperty("system")]
         public string System { get; set; } = string.Empty;
+
+        [JsonProperty("stream")]
+        public bool Stream { get; set; }
 
         [JsonProperty("messages")]
         public List<ClaudeMessage> Messages { get; set; } = new();

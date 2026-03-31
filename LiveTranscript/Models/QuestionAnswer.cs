@@ -15,11 +15,23 @@ namespace LiveTranscript.Models
     public class QuestionAnswer : INotifyPropertyChanged
     {
         private bool _isExpanded = true;
+        private string _paragraphAnswer = string.Empty;
+        private string _keyPoints = string.Empty;
 
         public int Number { get; set; }
         public string Question { get; set; } = string.Empty;
-        public string ParagraphAnswer { get; set; } = string.Empty;
-        public string KeyPoints { get; set; } = string.Empty;
+
+        public string ParagraphAnswer
+        {
+            get => _paragraphAnswer;
+            set { _paragraphAnswer = value; OnPropertyChanged(nameof(ParagraphAnswer)); }
+        }
+
+        public string KeyPoints
+        {
+            get => _keyPoints;
+            set { _keyPoints = value; OnPropertyChanged(nameof(KeyPoints)); }
+        }
 
         public bool IsExpanded
         {
