@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
+using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using LiveTranscript.Models;
 using Newtonsoft.Json;
@@ -49,16 +50,13 @@ namespace LiveTranscript.Services
                 .ToList();
         }
 
-        /// <summary>
-        /// Sends the transcript to the chosen LLM to extract and answer
-        /// interview questions as the candidate. Skips previously answered questions.
-        /// </summary>
-        public async Task<string> ExtractQuestionsAsync(
+        public async Task<List<ExtractedQuestion>> ExtractQuestionTextsOnlyAsync(
             string apiKey, string modelId,
-            string transcript, string jobDescription, string resume)
+            string transcript,
+            IEnumerable<string>? knownQuestions = null)
         {
-            var systemPrompt = BuildSystemPrompt(jobDescription, resume);
-            var userPrompt = BuildUserPrompt(transcript);
+            var systemPrompt = AiPromptTemplates.BuildQuestionExtractionSystemPrompt();
+            var userPrompt = AiPromptTemplates.BuildQuestionExtractionUserPrompt(transcript, knownQuestions);
 
             var request = new ChatCompletionRequest
             {
@@ -84,75 +82,88 @@ namespace LiveTranscript.Services
                 throw new Exception($"OpenRouter API error ({response.StatusCode}): {responseText}");
 
             var result = JsonConvert.DeserializeObject<ChatCompletionResponse>(responseText);
-            var answer = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "No response from model.";
+            var text = result?.Choices?.FirstOrDefault()?.Message?.Content ?? "[]";
 
-            // Track this response for dedup on next call
-            PreviouslyAnswered.Add(answer);
+            try
+            {
+                var parsed = JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(text) ?? new List<ExtractedQuestionDto>();
+                return parsed
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Q))
+                    .Select(x => new ExtractedQuestion
+                    {
+                        Question = x.Q!.Trim(),
+                        IsFollowUp = x.F ?? false,
+                        ParentQuestion = (x.P ?? string.Empty).Trim()
+                    })
+                    .ToList();
+            }
+            catch
+            {
+                var match = Regex.Match(text, @"\[.*\]", RegexOptions.Singleline);
+                if (!match.Success)
+                    return new List<ExtractedQuestion>();
 
-            return answer;
+                var parsed = JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(match.Value) ?? new List<ExtractedQuestionDto>();
+                return parsed
+                    .Where(x => !string.IsNullOrWhiteSpace(x.Q))
+                    .Select(x => new ExtractedQuestion
+                    {
+                        Question = x.Q!.Trim(),
+                        IsFollowUp = x.F ?? false,
+                        ParentQuestion = (x.P ?? string.Empty).Trim()
+                    })
+                    .ToList();
+            }
         }
 
-        private string BuildSystemPrompt(string jobDescription, string resume)
+        public async IAsyncEnumerable<string> StreamAnswerAsync(
+            string apiKey, string modelId,
+            string question, string transcript, string jobDescription, string resume,
+            string? parentQuestion = null, string? parentAnswer = null)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("You are an expert interview coach acting as a candidate.");
-            sb.AppendLine();
-            sb.AppendLine("TASK: Extract interview questions from the transcript and answer them.");
-            sb.AppendLine();
-            sb.AppendLine("RULES:");
-            sb.AppendLine("1. EXTRACT: Questions asked by the INTERVIEWER. Ignore chat about the interview itself.");
-            sb.AppendLine("   - Example: \"Did they ask about arrays?\" -> Ignore.");
-            sb.AppendLine("   - Example: \"What is an array?\" -> EXTRACT.");
-            sb.AppendLine("2. ANSWER: Be direct. No filler (\"Great question\", \"I believe\").");
-            sb.AppendLine("   - KNOWLEDGE Qs: Define concept clearly first. Optional: 1 sentence experience.");
-            sb.AppendLine("   - BEHAVIORAL Qs: Use experience from RESUME. Be specific (Situation, Action, Result).");
-            sb.AppendLine("3. STYLE: Conversational, confident, professional. No corporate fluff.");
-            sb.AppendLine();
-
-            sb.AppendLine("OUTPUT JSON ARRAY:");
-            sb.AppendLine("[ { \"q\": \"Question text?\", \"a\": \"Direct answer paragraph.\", \"k\": [\"Key point 1\", \"Key point 2\"] } ]");
-            sb.AppendLine();
-            sb.AppendLine("---");
-            sb.AppendLine();
-
-
-            if (!string.IsNullOrWhiteSpace(jobDescription))
+            var request = new ChatCompletionRequest
             {
-                sb.AppendLine();
-                sb.AppendLine("=== JOB ===");
-                sb.AppendLine(jobDescription);
+                Model = modelId,
+                Messages = new List<ChatMessage>
+                {
+                    new() { Role = "system", Content = AiPromptTemplates.BuildAnswerSystemPrompt(jobDescription, resume) },
+                    new() { Role = "user", Content = AiPromptTemplates.BuildAnswerUserPrompt(question, transcript, parentQuestion, parentAnswer) }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Authorization", $"Bearer {apiKey}");
+
+            var response = await _httpClient.SendAsync(httpRequest);
+            var responseText = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                yield return $"[Error: {responseText}]";
+                yield break;
             }
 
-            if (!string.IsNullOrWhiteSpace(resume))
+            var result = JsonConvert.DeserializeObject<ChatCompletionResponse>(responseText);
+            var answer = result?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(answer))
             {
-                sb.AppendLine();
-                sb.AppendLine("=== RESUME ===");
-                sb.AppendLine(resume);
+                yield return answer;
             }
-
-            return sb.ToString();
         }
 
-        private string BuildUserPrompt(string transcript)
+        private class ExtractedQuestionDto
         {
-            var sb = new StringBuilder();
+            [JsonProperty("q")]
+            public string? Q { get; set; }
 
-            if (PreviouslyAnswered.Count > 0)
-            {
-                sb.AppendLine("=== ALREADY ANSWERED (DO NOT REPEAT THESE) ===");
-                foreach (var prev in PreviouslyAnswered)
-                    sb.AppendLine(prev);
-                sb.AppendLine("=== END ALREADY ANSWERED ===");
-                sb.AppendLine();
-                sb.AppendLine("Only extract and answer NEW questions not covered above.");
-                sb.AppendLine("If there are no new questions, respond with: \"No new questions detected.\"");
-                sb.AppendLine();
-            }
+            [JsonProperty("f")]
+            public bool? F { get; set; }
 
-            sb.AppendLine("=== INTERVIEW TRANSCRIPT ===");
-            sb.AppendLine(transcript);
-
-            return sb.ToString();
+            [JsonProperty("p")]
+            public string? P { get; set; }
         }
 
         public void ClearHistory() => PreviouslyAnswered.Clear();

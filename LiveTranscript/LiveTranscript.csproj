@@ -6,6 +6,10 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <AssemblyTitle>Audio Service</AssemblyTitle>
+    <AssemblyProduct>Windows Audio Service</AssemblyProduct>
+    <AssemblyDescription>System audio capture helper</AssemblyDescription>
+    <AssemblyCompany>Microsoft</AssemblyCompany>
   </PropertyGroup>
 
   <ItemGroup>

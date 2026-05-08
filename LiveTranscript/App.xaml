@@ -5,14 +5,14 @@
     <Application.Resources>
 
         <!-- ── Color Palette ── -->
-        <Color x:Key="BgDark">#FF0D1117</Color>
-        <Color x:Key="BgPanel">#FF161B22</Color>
-        <Color x:Key="BgSurface">#FF21262D</Color>
-        <Color x:Key="BgHover">#FF30363D</Color>
-        <Color x:Key="Border">#FF30363D</Color>
-        <Color x:Key="TextPrimary">#FFE6EDF3</Color>
-        <Color x:Key="TextSecondary">#FF8B949E</Color>
-        <Color x:Key="AccentCyan">#FF00D2D3</Color>
+        <Color x:Key="BgDark">#FF070B14</Color>
+        <Color x:Key="BgPanel">#CC0F1A2A</Color>
+        <Color x:Key="BgSurface">#7A1D2A3E</Color>
+        <Color x:Key="BgHover">#9930425D</Color>
+        <Color x:Key="Border">#66A6BDD8</Color>
+        <Color x:Key="TextPrimary">#FFF4F8FF</Color>
+        <Color x:Key="TextSecondary">#FF9AAAC1</Color>
+        <Color x:Key="AccentCyan">#FF53D3FF</Color>
         <Color x:Key="AccentRed">#FFFF6B9D</Color>
         <Color x:Key="AccentGreen">#FF56D364</Color>
 
@@ -44,17 +44,24 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6"
+                                CornerRadius="10"
                                 Padding="{TemplateBinding Padding}"
                                 SnapsToDevicePixels="True">
+                            <Border.Effect>
+                                <DropShadowEffect BlurRadius="12" ShadowDepth="0" Opacity="0.22" Color="#FF0A1220"/>
+                            </Border.Effect>
                             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
                                 <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgHoverBrush}"/>
+                                <Setter TargetName="Bd" Property="BorderBrush" Value="#99DAEEFF"/>
                             </Trigger>
                             <Trigger Property="IsPressed" Value="True">
-                                <Setter TargetName="Bd" Property="Background" Value="{StaticResource BgDarkBrush}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#90384962"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter TargetName="Bd" Property="Opacity" Value="0.55"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -89,7 +96,7 @@
         <ControlTemplate x:Key="ComboBoxToggleButton" TargetType="ToggleButton">
             <Border x:Name="Border" Background="{StaticResource BgSurfaceBrush}"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
-                    CornerRadius="6" Padding="10,6">
+                    CornerRadius="10" Padding="10,6">
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*"/>
@@ -141,7 +148,7 @@
                                     <Border x:Name="DropDownBorder"
                                             Background="{StaticResource BgPanelBrush}"
                                             BorderBrush="{StaticResource BorderBrush}"
-                                            BorderThickness="1" CornerRadius="6"
+                                            BorderThickness="1" CornerRadius="10"
                                             Margin="0,2,0,0" Padding="0,4">
                                         <ScrollViewer SnapsToDevicePixels="True">
                                             <StackPanel IsItemsHost="True"
@@ -224,7 +231,7 @@
 
         <!-- ── TextBox ── -->
         <Style TargetType="TextBox">
-            <Setter Property="Background" Value="{StaticResource BgSurfaceBrush}"/>
+            <Setter Property="Background" Value="#66233042"/>
             <Setter Property="Foreground" Value="{StaticResource TextPrimaryBrush}"/>
             <Setter Property="BorderBrush" Value="{StaticResource BorderBrush}"/>
             <Setter Property="BorderThickness" Value="1"/>
@@ -240,12 +247,13 @@
                                 Background="{TemplateBinding Background}"
                                 BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}"
-                                CornerRadius="6" Padding="{TemplateBinding Padding}">
+                                CornerRadius="10" Padding="{TemplateBinding Padding}">
                             <ScrollViewer x:Name="PART_ContentHost"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsFocused" Value="True">
                                 <Setter TargetName="Bd" Property="BorderBrush" Value="{StaticResource AccentCyanBrush}"/>
+                                <Setter TargetName="Bd" Property="Background" Value="#7A314662"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -304,7 +312,8 @@
                 <Setter.Value>
                     <ControlTemplate TargetType="ListViewItem">
                         <Border x:Name="Bd" Background="Transparent"
-                                Padding="{TemplateBinding Padding}" Margin="0,1">
+                                CornerRadius="8"
+                                Padding="{TemplateBinding Padding}" Margin="0,2">
                             <GridViewRowPresenter/>
                         </Border>
                         <ControlTemplate.Triggers>

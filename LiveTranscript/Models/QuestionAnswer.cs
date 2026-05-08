@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Linq;
 using System.Text.Json;
@@ -17,9 +18,57 @@ namespace LiveTranscript.Models
         private bool _isExpanded = true;
         private string _paragraphAnswer = string.Empty;
         private string _keyPoints = string.Empty;
+        private int _number;
+        private int _followUpNumber;
+        private bool _isFollowUp;
+        private string _parentQuestion = string.Empty;
 
-        public int Number { get; set; }
+        public int Number
+        {
+            get => _number;
+            set
+            {
+                _number = value;
+                OnPropertyChanged(nameof(Number));
+                OnPropertyChanged(nameof(DisplayBadge));
+            }
+        }
+
+        public int FollowUpNumber
+        {
+            get => _followUpNumber;
+            set
+            {
+                _followUpNumber = value;
+                OnPropertyChanged(nameof(FollowUpNumber));
+                OnPropertyChanged(nameof(DisplayBadge));
+            }
+        }
+
+        public bool IsFollowUp
+        {
+            get => _isFollowUp;
+            set
+            {
+                _isFollowUp = value;
+                OnPropertyChanged(nameof(IsFollowUp));
+                OnPropertyChanged(nameof(DisplayBadge));
+            }
+        }
+
+        public string ParentQuestion
+        {
+            get => _parentQuestion;
+            set
+            {
+                _parentQuestion = value;
+                OnPropertyChanged(nameof(ParentQuestion));
+            }
+        }
+
         public string Question { get; set; } = string.Empty;
+        public ObservableCollection<QuestionAnswer> FollowUps { get; } = new();
+        public string DisplayBadge => IsFollowUp ? $"F{FollowUpNumber}" : $"Q{Number}";
 
         public string ParagraphAnswer
         {
@@ -74,7 +123,9 @@ namespace LiveTranscript.Models
                             var qa = new QuestionAnswer
                             {
                                 Question = dto.Q ?? string.Empty,
-                                ParagraphAnswer = dto.A ?? string.Empty
+                                ParagraphAnswer = dto.A ?? string.Empty,
+                                IsFollowUp = dto.FollowUp ?? false,
+                                ParentQuestion = dto.ParentQuestion ?? string.Empty
                             };
 
                             if (dto.K != null && dto.K.Count > 0)
@@ -147,6 +198,21 @@ namespace LiveTranscript.Models
 
             [JsonPropertyName("k")]
             public List<string>? K { get; set; }
+
+            [JsonPropertyName("f")]
+            public bool? FollowUp { get; set; }
+
+            [JsonPropertyName("is_follow_up")]
+            public bool? IsFollowUp { set => FollowUp = value; }
+
+            [JsonPropertyName("follow_up")]
+            public bool? FollowUpAlt { set => FollowUp = value; }
+
+            [JsonPropertyName("p")]
+            public string? ParentQuestion { get; set; }
+
+            [JsonPropertyName("parent_question")]
+            public string? ParentQuestionAlt { set => ParentQuestion = value; }
         }
     }
 }
