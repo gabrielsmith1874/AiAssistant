@@ -4,6 +4,7 @@
 # Build
 bin/
 obj/
+/LiveTranscript.exe
 
 # IDE
 .vs/
