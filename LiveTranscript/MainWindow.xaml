@@ -16,17 +16,45 @@
         <conv:SpeakerToColorConverter x:Key="SpeakerColorConv"/>
         <conv:FinalToOpacityConverter x:Key="FinalOpacityConv"/>
         <conv:BoolToVisibilityConverter x:Key="BoolToVisConv"/>
+        <conv:AnswerModeVisibilityConverter x:Key="AnswerModeVisConv"/>
+        <conv:ZoomedFontSizeConverter x:Key="ZoomedFontSizeConv"/>
+        <SolidColorBrush x:Key="RootShellBrush" Color="#B30A1423"/>
+        <SolidColorBrush x:Key="RootShellBorderBrush" Color="#66BFD6EF"/>
+        <SolidColorBrush x:Key="TitleBarBrush" Color="#8C102238"/>
+        <SolidColorBrush x:Key="ControlsBarBrush" Color="#66162A42"/>
+        <SolidColorBrush x:Key="PanelBrush" Color="#141F3048"/>
+        <SolidColorBrush x:Key="PanelBorderBrush" Color="#40A6BDD8"/>
+        <SolidColorBrush x:Key="PanelBackdropBrush" Color="#1AFFFFFF"/>
+        <SolidColorBrush x:Key="PanelBackdropBorderBrush" Color="#33D7EEFF"/>
         <SolidColorBrush x:Key="TranscriptCardBackgroundBrush" Color="#2BFFFFFF"/>
         <SolidColorBrush x:Key="QaCardBackgroundBrush" Color="#24FFFFFF"/>
         <SolidColorBrush x:Key="QaAnswerBackgroundBrush" Color="#1FFFFFFF"/>
         <SolidColorBrush x:Key="FollowUpCardBackgroundBrush" Color="#22FFFFFF"/>
         <SolidColorBrush x:Key="FollowUpAnswerBackgroundBrush" Color="#18FFFFFF"/>
+        <SolidColorBrush x:Key="CardBorderBrush" Color="#26D7EEFF"/>
+        <SolidColorBrush x:Key="AnswerBorderBrush" Color="#20D7EEFF"/>
+        <SolidColorBrush x:Key="FollowUpBorderBrush" Color="#22D7EEFF"/>
+        <SolidColorBrush x:Key="FollowUpAnswerBorderBrush" Color="#1FD7EEFF"/>
+        <SolidColorBrush x:Key="SplitterBrush" Color="#2AA6BDD8"/>
+        <SolidColorBrush x:Key="ClaudeIndicatorBrush" Color="#2EFFFFFF"/>
+        <SolidColorBrush x:Key="PrimaryButtonBrush" Color="#FF00D2D3"/>
+        <SolidColorBrush x:Key="PrimaryButtonAltBrush" Color="#FF0099CC"/>
+        <SolidColorBrush x:Key="PrimaryButtonTextBrush" Color="#FF0D1117"/>
+        <SolidColorBrush x:Key="ExtractButtonBrush" Color="#FF9B59B6"/>
+        <SolidColorBrush x:Key="ExtractButtonAltBrush" Color="#FF8E44AD"/>
+        <SolidColorBrush x:Key="ExtractButtonTextBrush" Color="#FFFFFFFF"/>
+        <SolidColorBrush x:Key="QuestionBadgeBrush" Color="#FF9B59B6"/>
+        <SolidColorBrush x:Key="FollowUpBadgeBrush" Color="#FF4FA3D1"/>
+        <SolidColorBrush x:Key="HudHeaderBrush" Color="#CC000000"/>
+        <SolidColorBrush x:Key="HudPanelBrush" Color="#66000000"/>
+        <SolidColorBrush x:Key="SettingsPanelBrush" Color="#D2111A26"/>
+        <SolidColorBrush x:Key="StatusBarBrush" Color="#4D1A2636"/>
     </Window.Resources>
 
     <Border x:Name="RootShell"
             CornerRadius="16"
-            Background="#B30A1423"
-            BorderBrush="#66BFD6EF"
+            Background="{DynamicResource RootShellBrush}"
+            BorderBrush="{DynamicResource RootShellBorderBrush}"
             BorderThickness="1"
             Margin="10">
         <Border.Effect>
@@ -42,7 +70,7 @@
             </Grid.RowDefinitions>
 
             <!-- ═══ Title Bar ═══ -->
-            <Border x:Name="TitleBarBorder" Grid.Row="0" Background="#8C102238" CornerRadius="16,16,0,0"
+            <Border x:Name="TitleBarBorder" Grid.Row="0" Background="{DynamicResource TitleBarBrush}" CornerRadius="16,16,0,0"
                     Padding="16,10" MouseLeftButtonDown="TitleBar_MouseDown">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -57,6 +85,24 @@
                         <TextBlock Text="LIVE TRANSCRIPT" FontSize="13" FontWeight="SemiBold"
                                     Foreground="{StaticResource TextPrimaryBrush}" FontFamily="Segoe UI"
                                     VerticalAlignment="Center"/>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Orientation="Horizontal"
+                                HorizontalAlignment="Right" VerticalAlignment="Center"
+                                Margin="8,0,8,0">
+                        <Button Content="A-" Style="{StaticResource OverlayButton}"
+                                Width="30" Padding="0,4" FontSize="11" Margin="0,0,4,0"
+                                Click="TextZoomOut_Click" ToolTip="Decrease transcript and answer text size"/>
+                        <TextBlock x:Name="TextZoomText" Text="100%"
+                                   MinWidth="38" TextAlignment="Center"
+                                   FontSize="11" FontWeight="SemiBold"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   VerticalAlignment="Center"
+                                   MouseLeftButtonDown="TextZoomReset_MouseLeftButtonDown"
+                                   ToolTip="Reset text size"/>
+                        <Button Content="A+" Style="{StaticResource OverlayButton}"
+                                Width="30" Padding="0,4" FontSize="11" Margin="4,0,0,0"
+                                Click="TextZoomIn_Click" ToolTip="Increase transcript and answer text size"/>
                     </StackPanel>
 
                     <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
@@ -75,7 +121,7 @@
             </Border>
 
             <!-- ═══ Controls Bar ═══ -->
-            <Border x:Name="ControlsBarBorder" Grid.Row="1" Background="#66162A42" Padding="12,10"
+            <Border x:Name="ControlsBarBorder" Grid.Row="1" Background="{DynamicResource ControlsBarBrush}" Padding="12,10"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,0,0,1">
                 <Grid>
                     <Grid.ColumnDefinitions>
@@ -120,12 +166,12 @@
                                 <Setter Property="Background">
                                     <Setter.Value>
                                         <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                            <GradientStop Color="#FF00D2D3" Offset="0"/>
-                                            <GradientStop Color="#FF0099CC" Offset="1"/>
+                                            <GradientStop Color="{Binding Color, Source={StaticResource PrimaryButtonBrush}}" Offset="0"/>
+                                            <GradientStop Color="{Binding Color, Source={StaticResource PrimaryButtonAltBrush}}" Offset="1"/>
                                         </LinearGradientBrush>
                                     </Setter.Value>
                                 </Setter>
-                                <Setter Property="Foreground" Value="#FF0D1117"/>
+                                <Setter Property="Foreground" Value="{StaticResource PrimaryButtonTextBrush}"/>
                             </Style>
                         </Button.Style>
                     </Button>
@@ -143,7 +189,7 @@
 
                 <!-- ── Transcript Panel (Left) ── -->
                 <Border Grid.Column="0" Margin="2,2,2,2"
-                        Background="#141F3048" BorderBrush="#40A6BDD8" BorderThickness="1" CornerRadius="12">
+                        Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1" CornerRadius="12">
                     <Grid>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto"/>
@@ -163,8 +209,8 @@
                                 Click="CopyTranscriptAll_Click" ToolTip="Copy full transcript"/>
                     </Grid>
                     <Border x:Name="TranscriptPanelBackdrop" Grid.Row="1" Margin="8,0,8,8"
-                            Background="#1AFFFFFF" CornerRadius="12"
-                            BorderBrush="#33D7EEFF" BorderThickness="1">
+                            Background="{DynamicResource PanelBackdropBrush}" CornerRadius="12"
+                            BorderBrush="{DynamicResource PanelBackdropBorderBrush}" BorderThickness="1">
                         <ScrollViewer x:Name="TranscriptScroller"
                                       VerticalScrollBarVisibility="Auto"
                                       HorizontalScrollBarVisibility="Disabled"
@@ -174,18 +220,18 @@
                                     <DataTemplate>
                                         <Border Margin="0,3" Padding="10,8"
                                                 Background="{StaticResource TranscriptCardBackgroundBrush}" CornerRadius="10"
-                                                BorderBrush="#26D7EEFF" BorderThickness="1"
+                                                BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1"
                                                 Opacity="{Binding IsFinal, Converter={StaticResource FinalOpacityConv}}">
                                             <StackPanel>
                                                 <StackPanel Orientation="Horizontal" Margin="0,0,0,4">
                                                     <Ellipse Width="8" Height="8" Margin="0,0,6,0"
                                                              Fill="{Binding Speaker, Converter={StaticResource SpeakerColorConv}}"/>
                                                     <TextBlock Text="{Binding Speaker}"
-                                                               FontSize="11" FontWeight="SemiBold"
+                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11}" FontWeight="SemiBold"
                                                                Foreground="{Binding Speaker, Converter={StaticResource SpeakerColorConv}}"
                                                                FontFamily="Segoe UI"/>
                                                     <TextBlock Text="{Binding Timestamp, StringFormat='{}{0:HH:mm:ss}'}"
-                                                               FontSize="10" Foreground="{StaticResource TextSecondaryBrush}"
+                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=10}" Foreground="{StaticResource TextSecondaryBrush}"
                                                                Margin="10,0,0,0" VerticalAlignment="Center"
                                                                FontFamily="Segoe UI"/>
                                                 </StackPanel>
@@ -194,7 +240,7 @@
                                                          BorderThickness="0"
                                                          Background="Transparent"
                                                          TextWrapping="Wrap"
-                                                         FontSize="14"
+                                                         FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=14}"
                                                          Foreground="{StaticResource TextPrimaryBrush}"
                                                          FontFamily="Segoe UI"
                                                          Padding="0"
@@ -211,12 +257,12 @@
                 </Border>
 
                 <!-- Separator -->
-                <Rectangle x:Name="SplitSeparator" Grid.Column="1" Fill="#2AA6BDD8" Width="1"
+                <Rectangle x:Name="SplitSeparator" Grid.Column="1" Fill="{DynamicResource SplitterBrush}" Width="1"
                            HorizontalAlignment="Center" VerticalAlignment="Stretch" Margin="0,10"/>
 
                 <!-- ── AI Assistant Panel (Right) ── -->
                 <Border Grid.Column="2" Margin="2,2,2,2"
-                        Background="#141F3048" BorderBrush="#40A6BDD8" BorderThickness="1" CornerRadius="12">
+                        Background="{DynamicResource PanelBrush}" BorderBrush="{DynamicResource PanelBorderBrush}" BorderThickness="1" CornerRadius="12">
                 <Grid x:Name="AiPanelGrid">
 
                     <Grid.RowDefinitions>
@@ -256,8 +302,8 @@
 
                     <!-- Claude model indicator -->
                     <Border x:Name="ClaudeModelIndicator" Grid.Row="2" Margin="12,4"
-                            Background="#2EFFFFFF" CornerRadius="10" Padding="12,8"
-                            BorderBrush="#33D7EEFF" BorderThickness="1"
+                            Background="{DynamicResource ClaudeIndicatorBrush}" CornerRadius="10" Padding="12,8"
+                            BorderBrush="{DynamicResource PanelBackdropBorderBrush}" BorderThickness="1"
                             VerticalAlignment="Top"
                             Visibility="Collapsed">
                         <StackPanel Orientation="Horizontal">
@@ -294,25 +340,25 @@
                             <Button x:Name="ExtractButton" Click="Extract_Click"
                                     Content="🧠  Extract Questions" Cursor="Hand"
                                     FontSize="13" FontWeight="SemiBold" FontFamily="Segoe UI"
-                                    Padding="14,8" IsEnabled="False">
+                                    Padding="12,8" Margin="0,0,6,6" IsEnabled="False">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource OverlayButton}">
                                         <Setter Property="Background">
                                             <Setter.Value>
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                    <GradientStop Color="#FF9B59B6" Offset="0"/>
-                                                    <GradientStop Color="#FF8E44AD" Offset="1"/>
+                                                    <GradientStop Color="{Binding Color, Source={StaticResource ExtractButtonBrush}}" Offset="0"/>
+                                                    <GradientStop Color="{Binding Color, Source={StaticResource ExtractButtonAltBrush}}" Offset="1"/>
                                                 </LinearGradientBrush>
                                             </Setter.Value>
                                         </Setter>
-                                        <Setter Property="Foreground" Value="White"/>
+                                        <Setter Property="Foreground" Value="{StaticResource ExtractButtonTextBrush}"/>
                                     </Style>
                                 </Button.Style>
                             </Button>
                             <Button x:Name="AutoExtractButton" Click="AutoExtract_Click"
                                     Content="⚡ Auto Stream" Cursor="Hand"
                                     FontSize="11" FontWeight="SemiBold" FontFamily="Segoe UI"
-                                    Padding="10,8" Margin="8,0,0,0" IsEnabled="False"
+                                    Padding="10,8" Margin="0,0,6,6" IsEnabled="False"
                                     ToolTip="Auto-stream questions and answers as transcript grows">
                                 <Button.Style>
                                     <Style TargetType="Button" BasedOn="{StaticResource OverlayButton}">
@@ -321,17 +367,20 @@
                                 </Button.Style>
                             </Button>
                             <Button x:Name="ToggleAllButton" Content="👁 Show All" Style="{StaticResource OverlayButton}"
-                                    Padding="10,8" FontSize="11" Margin="8,0,0,0"
+                                    Padding="10,8" FontSize="11" Margin="0,0,6,6"
                                     Click="ToggleAll_Click" ToolTip="Show/hide all answers"/>
+                            <Button x:Name="AnswerModeToggleButton" Content="Mode: Paragraph" Style="{StaticResource OverlayButton}"
+                                    Padding="10,8" FontSize="11" Margin="0,0,6,6"
+                                    Click="ToggleAnswerMode_Click" ToolTip="Switch between full paragraph answers and jot notes"/>
                             <Button Content="Clear AI History" Style="{StaticResource OverlayButton}"
-                                    Padding="10,8" FontSize="11" Margin="8,0,0,0"
+                                    Padding="10,8" FontSize="11" Margin="0,0,6,6"
                                     Click="ClearAiHistory_Click" ToolTip="Reset answered questions list"/>
                         </WrapPanel>
 
                     <!-- Q&A Cards -->
                     <Border x:Name="QaPanelBackdrop" Grid.Row="4" Margin="12,4,12,8"
-                            Background="#1AFFFFFF" CornerRadius="12"
-                            BorderBrush="#33D7EEFF" BorderThickness="1">
+                            Background="{DynamicResource PanelBackdropBrush}" CornerRadius="12"
+                            BorderBrush="{DynamicResource PanelBackdropBorderBrush}" BorderThickness="1">
                         <ScrollViewer x:Name="QaScroller" VerticalScrollBarVisibility="Auto">
                             <StackPanel Margin="8,0,8,8">
                                 <!-- Status text -->
@@ -347,7 +396,7 @@
                                         <DataTemplate>
                                             <Border Margin="0,3" Padding="12,10"
                                                     Background="{StaticResource QaCardBackgroundBrush}" CornerRadius="10"
-                                                    BorderBrush="#26D7EEFF" BorderThickness="1">
+                                                    BorderBrush="{DynamicResource CardBorderBrush}" BorderThickness="1">
                                                 <StackPanel>
                                                     <!-- Question header row -->
                                                     <Grid>
@@ -358,12 +407,12 @@
                                                         </Grid.ColumnDefinitions>
 
                                                         <!-- Q number badge -->
-                                                        <Border Grid.Column="0" Background="#FF9B59B6"
+                                                        <Border Grid.Column="0" Background="{DynamicResource QuestionBadgeBrush}"
                                                                 CornerRadius="4" Padding="6,2" Margin="0,0,8,0"
                                                                 VerticalAlignment="Top">
                                                             <TextBlock Text="{Binding DisplayBadge}"
-                                                                       FontSize="11" FontWeight="Bold"
-                                                                       Foreground="White" FontFamily="Segoe UI"/>
+                                                                       FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11}" FontWeight="Bold"
+                                                                       Foreground="{StaticResource ExtractButtonTextBrush}" FontFamily="Segoe UI"/>
                                                         </Border>
 
                                                         <!-- Question text -->
@@ -372,7 +421,7 @@
                                                                  BorderThickness="0"
                                                                  Background="Transparent"
                                                                  TextWrapping="Wrap"
-                                                                 FontSize="13" FontWeight="SemiBold"
+                                                                 FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=13}" FontWeight="SemiBold"
                                                                  Foreground="{StaticResource TextPrimaryBrush}"
                                                                  FontFamily="Segoe UI"
                                                                  Padding="0"
@@ -408,14 +457,15 @@
                                                                 Margin="0,8,0,0">
                                                         <!-- Paragraph answer -->
                                                         <Border Background="{StaticResource QaAnswerBackgroundBrush}" CornerRadius="8"
-                                                                BorderBrush="#20D7EEFF" BorderThickness="1"
-                                                                Padding="10,8" Margin="0,0,0,6">
+                                                                BorderBrush="{DynamicResource AnswerBorderBrush}" BorderThickness="1"
+                                                                Padding="10,8" Margin="0,0,0,6"
+                                                                Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Paragraph}">
                                                             <TextBox Text="{Binding ParagraphAnswer, UpdateSourceTrigger=PropertyChanged}"
                                                                      IsReadOnly="True"
                                                                      BorderThickness="0"
                                                                      Background="Transparent"
                                                                      TextWrapping="Wrap"
-                                                                     FontSize="12.5"
+                                                                     FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12.5}"
                                                                      Foreground="{StaticResource TextPrimaryBrush}"
                                                                      FontFamily="Segoe UI"
                                                                      Padding="0"
@@ -425,11 +475,12 @@
 
                                                         <!-- Key points -->
                                                         <TextBox Text="{Binding KeyPoints, UpdateSourceTrigger=PropertyChanged}"
+                                                                 Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Notes}"
                                                                  IsReadOnly="True"
                                                                  BorderThickness="0"
                                                                  Background="Transparent"
                                                                  TextWrapping="Wrap"
-                                                                 FontSize="12"
+                                                                 FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12}"
                                                                  Foreground="{StaticResource TextSecondaryBrush}"
                                                                  FontFamily="Segoe UI"
                                                                  Margin="4,0,0,0"
@@ -443,7 +494,7 @@
                                                             <DataTemplate>
                                                                 <Border Margin="0,4,0,0" Padding="10,8"
                                                                         Background="{StaticResource FollowUpCardBackgroundBrush}" CornerRadius="8"
-                                                                        BorderBrush="#22D7EEFF" BorderThickness="1">
+                                                                        BorderBrush="{DynamicResource FollowUpBorderBrush}" BorderThickness="1">
                                                                     <StackPanel>
                                                                         <Grid>
                                                                             <Grid.ColumnDefinitions>
@@ -452,12 +503,12 @@
                                                                                 <ColumnDefinition Width="Auto"/>
                                                                             </Grid.ColumnDefinitions>
 
-                                                                            <Border Grid.Column="0" Background="#FF4FA3D1"
+                                                                            <Border Grid.Column="0" Background="{DynamicResource FollowUpBadgeBrush}"
                                                                                     CornerRadius="4" Padding="6,2" Margin="0,0,8,0"
                                                                                     VerticalAlignment="Top">
                                                                                 <TextBlock Text="{Binding DisplayBadge}"
-                                                                                           FontSize="10.5" FontWeight="Bold"
-                                                                                           Foreground="White" FontFamily="Segoe UI"/>
+                                                                                           FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=10.5}" FontWeight="Bold"
+                                                                                           Foreground="{StaticResource PrimaryButtonTextBrush}" FontFamily="Segoe UI"/>
                                                                             </Border>
 
                                                                             <TextBox Grid.Column="1" Text="{Binding Question}"
@@ -465,7 +516,7 @@
                                                                                      BorderThickness="0"
                                                                                      Background="Transparent"
                                                                                      TextWrapping="Wrap"
-                                                                                     FontSize="12.5" FontWeight="SemiBold"
+                                                                                     FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12.5}" FontWeight="SemiBold"
                                                                                      Foreground="{StaticResource TextPrimaryBrush}"
                                                                                      FontFamily="Segoe UI"
                                                                                      Padding="0"
@@ -498,14 +549,15 @@
                                                                         <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisConv}}"
                                                                                     Margin="0,8,0,0">
                                                                             <Border Background="{StaticResource FollowUpAnswerBackgroundBrush}" CornerRadius="7"
-                                                                                    BorderBrush="#1FD7EEFF" BorderThickness="1"
-                                                                                    Padding="8,6" Margin="0,0,0,5">
+                                                                                    BorderBrush="{DynamicResource FollowUpAnswerBorderBrush}" BorderThickness="1"
+                                                                                    Padding="8,6" Margin="0,0,0,5"
+                                                                                    Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Paragraph}">
                                                                                 <TextBox Text="{Binding ParagraphAnswer, UpdateSourceTrigger=PropertyChanged}"
                                                                                          IsReadOnly="True"
                                                                                          BorderThickness="0"
                                                                                          Background="Transparent"
                                                                                          TextWrapping="Wrap"
-                                                                                         FontSize="12"
+                                                                                         FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12}"
                                                                                          Foreground="{StaticResource TextPrimaryBrush}"
                                                                                          FontFamily="Segoe UI"
                                                                                          Padding="0"
@@ -514,11 +566,12 @@
                                                                             </Border>
 
                                                                             <TextBox Text="{Binding KeyPoints, UpdateSourceTrigger=PropertyChanged}"
+                                                                                     Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Notes}"
                                                                                      IsReadOnly="True"
                                                                                      BorderThickness="0"
                                                                                      Background="Transparent"
                                                                                      TextWrapping="Wrap"
-                                                                                     FontSize="11.5"
+                                                                                     FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11.5}"
                                                                                      Foreground="{StaticResource TextSecondaryBrush}"
                                                                                      FontFamily="Segoe UI"
                                                                                      Margin="2,0,0,0"
@@ -568,13 +621,14 @@
                                 MouseLeftButtonUp="HudModuleHeader_MouseLeftButtonUp"
                                 Cursor="SizeAll"
                                 Tag="{Binding ElementName=HudTranscriptModule}">
-                            <Grid MinHeight="30">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Border HorizontalAlignment="Left"
-                                        Background="#CC000000"
+                            <Grid MinHeight="64">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0"
+                                        HorizontalAlignment="Left"
+                                        Background="{DynamicResource HudHeaderBrush}"
                                         CornerRadius="7"
                                         Padding="9,5"
                                         ToolTip="Drag this HUD box">
@@ -582,48 +636,77 @@
                                                FontSize="12" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}"/>
                                 </Border>
-                                <WrapPanel Grid.Column="1" HorizontalAlignment="Right">
+                                <WrapPanel Grid.Row="1"
+                                           HorizontalAlignment="Left"
+                                           Margin="0,6,0,0">
+                                    <Button Content="A-"
+                                            Click="TextZoomOut_Click"
+                                            Style="{StaticResource OverlayButton}"
+                                            Width="28"
+                                            Padding="0,4"
+                                            FontSize="10.5"
+                                            Margin="0,0,6,4"
+                                            ToolTip="Decrease transcript and answer text size"/>
+                                    <TextBlock x:Name="HudTextZoomText"
+                                               Text="100%"
+                                               MinWidth="34"
+                                               TextAlignment="Center"
+                                               FontSize="10.5"
+                                               FontWeight="SemiBold"
+                                               Foreground="{StaticResource TextSecondaryBrush}"
+                                               VerticalAlignment="Center"
+                                               Margin="0,0,6,4"
+                                               MouseLeftButtonDown="TextZoomReset_MouseLeftButtonDown"
+                                               ToolTip="Reset text size"/>
+                                    <Button Content="A+"
+                                            Click="TextZoomIn_Click"
+                                            Style="{StaticResource OverlayButton}"
+                                            Width="28"
+                                            Padding="0,4"
+                                            FontSize="10.5"
+                                            Margin="0,0,6,4"
+                                            ToolTip="Increase transcript and answer text size"/>
                                     <Button Content="{Binding ElementName=StartStopButton, Path=Content}"
                                             Click="StartStop_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="9,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Start or stop transcription"/>
                                     <Button Content="🗑"
                                             Click="Clear_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Clear transcript"/>
                                     <Button Content="Copy"
                                             Click="CopyTranscriptAll_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Copy full transcript"/>
                                     <Button Content="{Binding ElementName=PinButton, Path=Content}"
                                             Click="Pin_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Toggle always on top"/>
                                     <Button Content="─"
                                             Click="Minimize_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Hide overlay"/>
                                     <Button Content="✕"
                                             Click="Close_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Close"/>
                                 </WrapPanel>
                             </Grid>
@@ -647,10 +730,10 @@
                                                     BorderThickness="0">
                                                 <StackPanel>
                                                     <TextBlock Text="{Binding Speaker}"
-                                                               FontSize="10.5" FontWeight="SemiBold"
+                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=10.5}" FontWeight="SemiBold"
                                                                Foreground="{Binding Speaker, Converter={StaticResource SpeakerColorConv}}"/>
                                                     <TextBlock Text="{Binding Text}"
-                                                               FontSize="13"
+                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=13}"
                                                                Foreground="{StaticResource TextPrimaryBrush}"
                                                                TextWrapping="Wrap"/>
                                                 </StackPanel>
@@ -664,7 +747,7 @@
                                 Width="24" Height="24"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Bottom"
-                                Background="#66000000"
+                                Background="{DynamicResource HudPanelBrush}"
                                 CornerRadius="5"
                                 Cursor="SizeNWSE"
                                 ToolTip="Resize this HUD box"
@@ -700,13 +783,14 @@
                                 MouseLeftButtonUp="HudModuleHeader_MouseLeftButtonUp"
                                 Cursor="SizeAll"
                                 Tag="{Binding ElementName=HudAnswersModule}">
-                            <Grid MinHeight="30">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*"/>
-                                    <ColumnDefinition Width="Auto"/>
-                                </Grid.ColumnDefinitions>
-                                <Border HorizontalAlignment="Left"
-                                        Background="#CC000000"
+                            <Grid MinHeight="64">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto"/>
+                                    <RowDefinition Height="Auto"/>
+                                </Grid.RowDefinitions>
+                                <Border Grid.Row="0"
+                                        HorizontalAlignment="Left"
+                                        Background="{DynamicResource HudHeaderBrush}"
                                         CornerRadius="7"
                                         Padding="9,5"
                                         ToolTip="Drag this HUD box">
@@ -714,13 +798,15 @@
                                                FontSize="12" FontWeight="SemiBold"
                                                Foreground="{StaticResource TextPrimaryBrush}"/>
                                 </Border>
-                                <WrapPanel Grid.Column="1" HorizontalAlignment="Right">
+                                <WrapPanel Grid.Row="1"
+                                           HorizontalAlignment="Left"
+                                           Margin="0,6,0,0">
                                     <Button Click="Extract_Click"
                                             Content="🧠 Extract"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="9,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             IsEnabled="{Binding ElementName=ExtractButton, Path=IsEnabled}"
                                             ToolTip="Extract questions and generate answers"/>
                                     <Button Click="AutoExtract_Click"
@@ -728,7 +814,7 @@
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             IsEnabled="{Binding ElementName=AutoExtractButton, Path=IsEnabled}"
                                             Foreground="{Binding ElementName=AutoExtractButton, Path=Foreground}"
                                             ToolTip="Auto-stream questions and answers as transcript grows"/>
@@ -737,21 +823,29 @@
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Show/hide all answers"/>
+                                    <Button x:Name="HudAnswerModeToggleButton"
+                                            Click="ToggleAnswerMode_Click"
+                                            Content="Paragraph"
+                                            Style="{StaticResource OverlayButton}"
+                                            Padding="8,4"
+                                            FontSize="10.5"
+                                            Margin="0,0,6,4"
+                                            ToolTip="Switch between full paragraph answers and jot notes"/>
                                     <Button Content="Clear AI"
                                             Click="ClearAiHistory_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Clear AI answers and history"/>
                                     <Button Content="Copy"
                                             Click="CopyQaAll_Click"
                                             Style="{StaticResource OverlayButton}"
                                             Padding="8,4"
                                             FontSize="10.5"
-                                            Margin="6,0,0,0"
+                                            Margin="0,0,6,4"
                                             ToolTip="Copy all questions and answers"/>
                                 </WrapPanel>
                             </Grid>
@@ -762,12 +856,12 @@
                                 BorderThickness="0">
                             <ScrollViewer x:Name="HudQaScroller" VerticalScrollBarVisibility="Auto" Background="Transparent" Padding="0">
                                 <StackPanel>
-                                    <Border Background="#CC000000"
+                                    <Border Background="{DynamicResource HudHeaderBrush}"
                                             CornerRadius="6"
                                             Padding="8,6"
                                             Margin="0,0,0,6">
                                         <TextBlock Text="{Binding ElementName=AiStatusText, Path=Text}"
-                                                   FontSize="11.5" FontStyle="Italic"
+                                                   FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11.5}" FontStyle="Italic"
                                                    Foreground="{StaticResource TextSecondaryBrush}"
                                                    TextWrapping="Wrap"/>
                                     </Border>
@@ -786,10 +880,10 @@
                                                                 <ColumnDefinition Width="Auto"/>
                                                             </Grid.ColumnDefinitions>
                                                             <StackPanel Grid.Column="0">
-                                                                <TextBlock Text="{Binding DisplayBadge}" FontSize="10.5" FontWeight="Bold"
-                                                                           Foreground="#FFD8A8FF"/>
+                                                                <TextBlock Text="{Binding DisplayBadge}" FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=10.5}" FontWeight="Bold"
+                                                                           Foreground="{StaticResource TextSecondaryBrush}"/>
                                                                 <TextBlock Text="{Binding Question}" Margin="0,4,0,4"
-                                                                           FontSize="12.5" FontWeight="SemiBold"
+                                                                           FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12.5}" FontWeight="SemiBold"
                                                                            Foreground="{StaticResource TextPrimaryBrush}"
                                                                            TextWrapping="Wrap"/>
                                                             </StackPanel>
@@ -819,11 +913,13 @@
                                                         </Grid>
                                                         <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisConv}}">
                                                             <TextBlock Text="{Binding ParagraphAnswer}"
-                                                                       FontSize="12"
+                                                                       Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Paragraph}"
+                                                                       FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12}"
                                                                        Foreground="{StaticResource TextPrimaryBrush}"
                                                                        TextWrapping="Wrap"/>
                                                             <TextBlock Text="{Binding KeyPoints}"
-                                                                       FontSize="11.5"
+                                                                       Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Notes}"
+                                                                       FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11.5}"
                                                                        Foreground="{StaticResource TextSecondaryBrush}"
                                                                        TextWrapping="Wrap"
                                                                        Margin="0,5,0,0"/>
@@ -846,12 +942,12 @@
                                                                                 </Grid.ColumnDefinitions>
                                                                                 <StackPanel Grid.Column="0">
                                                                                     <TextBlock Text="{Binding DisplayBadge}"
-                                                                                               FontSize="10"
+                                                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=10}"
                                                                                                FontWeight="Bold"
-                                                                                               Foreground="#FF9BD7FF"/>
-                                                                                    <TextBlock Text="{Binding Question}"
+                                                                                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                                                                                   <TextBlock Text="{Binding Question}"
                                                                                                Margin="0,3,0,3"
-                                                                                               FontSize="12"
+                                                                                               FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=12}"
                                                                                                FontWeight="SemiBold"
                                                                                                Foreground="{StaticResource TextPrimaryBrush}"
                                                                                                TextWrapping="Wrap"/>
@@ -882,11 +978,13 @@
                                                                             </Grid>
                                                                             <StackPanel Visibility="{Binding IsExpanded, Converter={StaticResource BoolToVisConv}}">
                                                                                 <TextBlock Text="{Binding ParagraphAnswer}"
-                                                                                           FontSize="11.5"
+                                                                                           Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Paragraph}"
+                                                                                           FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11.5}"
                                                                                            Foreground="{StaticResource TextPrimaryBrush}"
                                                                                            TextWrapping="Wrap"/>
                                                                                 <TextBlock Text="{Binding KeyPoints}"
-                                                                                           FontSize="11"
+                                                                                           Visibility="{Binding AnswerDisplayMode, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource AnswerModeVisConv}, ConverterParameter=Notes}"
+                                                                                           FontSize="{Binding TextZoomFactor, RelativeSource={RelativeSource AncestorType={x:Type Window}}, Converter={StaticResource ZoomedFontSizeConv}, ConverterParameter=11}"
                                                                                            Foreground="{StaticResource TextSecondaryBrush}"
                                                                                            TextWrapping="Wrap"
                                                                                            Margin="0,5,0,0"/>
@@ -908,7 +1006,7 @@
                                 Width="24" Height="24"
                                 HorizontalAlignment="Right"
                                 VerticalAlignment="Bottom"
-                                Background="#66000000"
+                                Background="{DynamicResource HudPanelBrush}"
                                 CornerRadius="5"
                                 Cursor="SizeNWSE"
                                 ToolTip="Resize this HUD box"
@@ -944,24 +1042,29 @@
                         <Setter Property="Background">
                             <Setter.Value>
                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                    <GradientStop Color="#FF9B59B6" Offset="0"/>
-                                    <GradientStop Color="#FF8E44AD" Offset="1"/>
+                                    <GradientStop Color="{Binding Color, Source={StaticResource ExtractButtonBrush}}" Offset="0"/>
+                                    <GradientStop Color="{Binding Color, Source={StaticResource ExtractButtonAltBrush}}" Offset="1"/>
                                 </LinearGradientBrush>
                             </Setter.Value>
                         </Setter>
-                        <Setter Property="Foreground" Value="White"/>
+                        <Setter Property="Foreground" Value="{StaticResource ExtractButtonTextBrush}"/>
                     </Style>
                 </Button.Style>
             </Button>
 
             <!-- ═══ Settings Flyout ═══ -->
             <Border x:Name="SettingsPanel" Grid.Row="2" Grid.RowSpan="2"
-                    Background="#D2111A26" Visibility="Collapsed"
+                    Background="{DynamicResource SettingsPanelBrush}" Visibility="Collapsed"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="1,0,0,0">
                 <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="16,12">
                     <StackPanel>
                         <TextBlock Text="⚙ Settings" FontSize="16" FontWeight="Bold"
                                    Foreground="{StaticResource TextPrimaryBrush}" Margin="0,0,0,12"/>
+
+                        <TextBlock Text="Theme" FontSize="11"
+                                   Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,4"/>
+                        <ComboBox x:Name="SettingsThemeSelector" Margin="0,0,0,12"
+                                  SelectionChanged="SettingsThemeSelector_SelectionChanged"/>
 
                         <!-- AI Provider -->
                         <TextBlock Text="AI Provider" FontSize="11"
@@ -1022,12 +1125,12 @@
                                         <Setter Property="Background">
                                             <Setter.Value>
                                                 <LinearGradientBrush StartPoint="0,0" EndPoint="1,1">
-                                                    <GradientStop Color="#FF56D364" Offset="0"/>
-                                                    <GradientStop Color="#FF2EA043" Offset="1"/>
+                                                    <GradientStop Color="{Binding Color, Source={StaticResource PrimaryButtonBrush}}" Offset="0"/>
+                                                    <GradientStop Color="{Binding Color, Source={StaticResource PrimaryButtonAltBrush}}" Offset="1"/>
                                                 </LinearGradientBrush>
                                             </Setter.Value>
                                         </Setter>
-                                        <Setter Property="Foreground" Value="#FF0D1117"/>
+                                        <Setter Property="Foreground" Value="{StaticResource PrimaryButtonTextBrush}"/>
                                     </Style>
                                 </Button.Style>
                             </Button>
@@ -1040,7 +1143,7 @@
             </Border>
 
             <!-- ═══ Status Bar ═══ -->
-            <Border x:Name="StatusBarBorder" Grid.Row="3" Background="#4D1A2636" CornerRadius="0,0,16,16"
+            <Border x:Name="StatusBarBorder" Grid.Row="3" Background="{DynamicResource StatusBarBrush}" CornerRadius="0,0,16,16"
                     Padding="14,8"
                     BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0">
                 <Grid>

@@ -127,11 +127,11 @@ namespace LiveTranscript.Services
         public async IAsyncEnumerable<string> StreamAnswerAsync(
             string apiKey, string modelId,
             string question, string transcript, string jobDescription, string resume,
-            string? parentQuestion = null, string? parentAnswer = null)
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
         {
             var systemPrompt = AiPromptTemplates.BuildAnswerSystemPrompt(jobDescription, resume);
             var userPrompt = AiPromptTemplates.BuildAnswerUserPrompt(
-                question, transcript, parentQuestion, parentAnswer);
+                question, transcript, parentQuestion, parentAnswer, answerHistory);
 
             var request = new ClaudeCompletionRequest
             {
@@ -200,6 +200,94 @@ namespace LiveTranscript.Services
                                 var deltaNode = delta?["delta"];
                                 var deltaType = deltaNode?["type"]?.ToString();
                                 
+                                if (deltaType == "text_delta")
+                                {
+                                    textToYield = deltaNode?["text"]?.ToString();
+                                }
+                            }
+                        }
+                        catch { }
+
+                        if (!string.IsNullOrEmpty(textToYield))
+                            yield return textToYield;
+                    }
+                }
+            }
+        }
+
+        public async IAsyncEnumerable<string> StreamJotNotesAsync(
+            string apiKey, string modelId,
+            string question, string paragraphAnswer, string transcript, string jobDescription, string resume,
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
+        {
+            var systemPrompt = AiPromptTemplates.BuildJotNotesSystemPrompt(jobDescription, resume);
+            var userPrompt = AiPromptTemplates.BuildJotNotesUserPrompt(
+                question, paragraphAnswer, transcript, parentQuestion, parentAnswer, answerHistory);
+
+            var request = new ClaudeCompletionRequest
+            {
+                Model = modelId,
+                MaxTokens = 1024,
+                System = systemPrompt,
+                Stream = true,
+                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
+                Messages = new List<ClaudeMessage>
+                {
+                    new() { Role = "user", Content = userPrompt }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore
+            });
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("x-api-key", apiKey);
+
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                yield return $"[Error: {error}]";
+                yield break;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            var buffer = new byte[8192];
+            var leftover = string.Empty;
+
+            while (true)
+            {
+                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                if (bytesRead == 0) break;
+
+                var text = leftover + Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var lines = text.Split('\n');
+                leftover = lines[^1];
+
+                for (int i = 0; i < lines.Length - 1; i++)
+                {
+                    var line = lines[i].Trim();
+                    if (string.IsNullOrWhiteSpace(line)) continue;
+                    if (line.StartsWith("data: "))
+                    {
+                        var data = line.Substring(6).Trim();
+                        if (data == "[DONE]") yield break;
+
+                        string? textToYield = null;
+                        try
+                        {
+                            var delta = JsonConvert.DeserializeObject<JObject>(data);
+                            var type = delta?["type"]?.ToString();
+
+                            if (type == "content_block_delta")
+                            {
+                                var deltaNode = delta?["delta"];
+                                var deltaType = deltaNode?["type"]?.ToString();
+
                                 if (deltaType == "text_delta")
                                 {
                                     textToYield = deltaNode?["text"]?.ToString();

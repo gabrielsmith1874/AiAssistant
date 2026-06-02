@@ -154,11 +154,96 @@ namespace LiveTranscript.Services
         public async IAsyncEnumerable<string> StreamAnswerAsync(
             string baseUrl, string apiKey, string modelId,
             string question, string transcript, string jobDescription, string resume,
-            string? parentQuestion = null, string? parentAnswer = null)
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
         {
             var systemPrompt = AiPromptTemplates.BuildAnswerSystemPrompt(jobDescription, resume);
             var userPrompt = AiPromptTemplates.BuildAnswerUserPrompt(
-                question, transcript, parentQuestion, parentAnswer);
+                question, transcript, parentQuestion, parentAnswer, answerHistory);
+
+            var request = new
+            {
+                model = modelId,
+                stream = true,
+                messages = new[]
+                {
+                    new { role = "system", content = systemPrompt },
+                    new { role = "user", content = userPrompt }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, $"{NormalizeBaseUrl(baseUrl)}/v1/chat/completions")
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            AddOptionalAuthHeader(httpRequest, apiKey);
+
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+            if (!response.IsSuccessStatusCode)
+            {
+                var error = await response.Content.ReadAsStringAsync();
+                yield return $"[Error: {error}]";
+                yield break;
+            }
+
+            if (!string.Equals(response.Content.Headers.ContentType?.MediaType, "text/event-stream", StringComparison.OrdinalIgnoreCase))
+            {
+                var body = await response.Content.ReadAsStringAsync();
+                var parsed = JsonConvert.DeserializeObject<ChatCompletionResponse>(body);
+                var text = parsed?.Choices?.FirstOrDefault()?.Message?.Content;
+                if (!string.IsNullOrWhiteSpace(text))
+                    yield return text;
+                yield break;
+            }
+
+            using var stream = await response.Content.ReadAsStreamAsync();
+            var buffer = new byte[8192];
+            var leftover = string.Empty;
+
+            while (true)
+            {
+                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
+                if (bytesRead == 0) break;
+
+                var text = leftover + Encoding.UTF8.GetString(buffer, 0, bytesRead);
+                var lines = text.Split('\n');
+                leftover = lines[^1];
+
+                for (int i = 0; i < lines.Length - 1; i++)
+                {
+                    var line = lines[i].Trim();
+                    if (string.IsNullOrWhiteSpace(line) || !line.StartsWith("data: ", StringComparison.Ordinal))
+                        continue;
+
+                    var data = line.Substring(6).Trim();
+                    if (data == "[DONE]")
+                        yield break;
+
+                    string? contentToYield = null;
+                    try
+                    {
+                        var delta = JsonConvert.DeserializeObject<JObject>(data);
+                        contentToYield = delta?["choices"]?.FirstOrDefault()?["delta"]?["content"]?.ToString();
+                    }
+                    catch
+                    {
+                        // Ignore malformed stream chunk and continue.
+                    }
+
+                    if (!string.IsNullOrEmpty(contentToYield))
+                        yield return contentToYield;
+                }
+            }
+        }
+
+        public async IAsyncEnumerable<string> StreamJotNotesAsync(
+            string baseUrl, string apiKey, string modelId,
+            string question, string paragraphAnswer, string transcript, string jobDescription, string resume,
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
+        {
+            var systemPrompt = AiPromptTemplates.BuildJotNotesSystemPrompt(jobDescription, resume);
+            var userPrompt = AiPromptTemplates.BuildJotNotesUserPrompt(
+                question, paragraphAnswer, transcript, parentQuestion, parentAnswer, answerHistory);
 
             var request = new
             {

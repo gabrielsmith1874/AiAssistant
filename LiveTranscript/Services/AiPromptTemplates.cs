@@ -52,6 +52,7 @@ namespace LiveTranscript.Services
             sb.AppendLine("5. TONE: Professional, confident, yet conversational. Sound like real speech (e.g., occasional 'so', 'then', or 'you know').");
             sb.AppendLine("6. NO FORMATTING: Return plain text only. No markdown, no bold, no bullet points, no lists.");
             sb.AppendLine("7. GROUNDING: Base your answer on the provided resume and job description. Do not invent unrelated experiences.");
+            sb.AppendLine("8. CONTINUITY: Use prior answer history when provided. Build on what was already said and avoid repeating the same example or wording unless the interviewer asks for it.");
             sb.AppendLine();
 
             if (!string.IsNullOrWhiteSpace(jobDescription))
@@ -75,7 +76,8 @@ namespace LiveTranscript.Services
             string question,
             string transcript,
             string? parentQuestion = null,
-            string? parentAnswer = null)
+            string? parentAnswer = null,
+            string? answerHistory = null)
         {
             var sb = new StringBuilder();
             sb.AppendLine($"QUESTION: {question}");
@@ -88,9 +90,82 @@ namespace LiveTranscript.Services
                 sb.AppendLine("Treat this as a follow-up and keep continuity with the previous answer.");
             }
 
+            if (!string.IsNullOrWhiteSpace(answerHistory))
+            {
+                sb.AppendLine();
+                sb.AppendLine("PRIOR ANSWER HISTORY:");
+                sb.AppendLine(answerHistory);
+                sb.AppendLine("Use this as interview continuity: build on prior answers and avoid repeating the same points unless the current question requires it.");
+            }
+
             sb.AppendLine();
             sb.AppendLine("CONTEXT TRANSCRIPT:");
             sb.AppendLine(transcript);
+            return sb.ToString();
+        }
+
+        public static string BuildJotNotesSystemPrompt(string jobDescription, string resume)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("You create candidate-facing jot notes for live interview answers.");
+            sb.AppendLine("Return plain text only. Use short dash-prefixed notes, not a script and not a full paragraph.");
+            sb.AppendLine("Each note should name a must-say word, concept, tool, acronym, metric, or example, followed by a short description of what to say about it.");
+            sb.AppendLine("If the question asks for a defined set of concepts, include each important term with a compact definition.");
+            sb.AppendLine("Keep the notes glanceable but complete enough to craft a natural spoken answer.");
+            sb.AppendLine("Avoid generic filler and do not repeat prior answers unless the current question depends on them.");
+            sb.AppendLine();
+
+            if (!string.IsNullOrWhiteSpace(jobDescription))
+            {
+                sb.AppendLine("=== TARGET JOB DESCRIPTION ===");
+                sb.AppendLine(jobDescription);
+                sb.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(resume))
+            {
+                sb.AppendLine("=== YOUR RESUME (TECHNICAL DATA) ===");
+                sb.AppendLine(resume);
+                sb.AppendLine();
+            }
+
+            return sb.ToString();
+        }
+
+        public static string BuildJotNotesUserPrompt(
+            string question,
+            string paragraphAnswer,
+            string transcript,
+            string? parentQuestion = null,
+            string? parentAnswer = null,
+            string? answerHistory = null)
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine($"QUESTION: {question}");
+
+            if (!string.IsNullOrWhiteSpace(parentQuestion))
+            {
+                sb.AppendLine();
+                sb.AppendLine($"PARENT QUESTION CONTEXT: {parentQuestion}");
+                if (!string.IsNullOrWhiteSpace(parentAnswer))
+                    sb.AppendLine($"PREVIOUS ANSWER CONTEXT: {parentAnswer}");
+            }
+
+            if (!string.IsNullOrWhiteSpace(answerHistory))
+            {
+                sb.AppendLine();
+                sb.AppendLine("PRIOR ANSWER HISTORY:");
+                sb.AppendLine(answerHistory);
+            }
+
+            sb.AppendLine();
+            sb.AppendLine("FULL PARAGRAPH ANSWER:");
+            sb.AppendLine(paragraphAnswer);
+            sb.AppendLine();
+            sb.AppendLine("CONTEXT TRANSCRIPT:");
+            sb.AppendLine(transcript);
+            sb.AppendLine();
+            sb.AppendLine("Create the jot-note version now.");
             return sb.ToString();
         }
     }

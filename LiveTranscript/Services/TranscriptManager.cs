@@ -19,6 +19,7 @@ namespace LiveTranscript.Services
 
         // Track in-progress turns: key = "{source}:{turnOrder}"
         private readonly System.Collections.Generic.Dictionary<string, TranscriptEntry> _activeTurns = new();
+        private readonly System.Collections.Generic.HashSet<string> _ignoredTurnKeys = new();
 
         // For providers without speaker IDs: alternate labels per turn
         private readonly System.Collections.Generic.Dictionary<string, int> _lastSpeakerIndex = new();
@@ -46,6 +47,13 @@ namespace LiveTranscript.Services
 
                 string turnKey = $"{sourceLabel}:{result.TurnOrder}";
                 string displaySpeaker = ResolveSpeakerLabel(sourceLabel, result);
+
+                if (_ignoredTurnKeys.Contains(turnKey))
+                {
+                    if (result.IsFinal)
+                        _ignoredTurnKeys.Remove(turnKey);
+                    return;
+                }
 
                 if (result.IsFinal)
                 {
@@ -139,8 +147,20 @@ namespace LiveTranscript.Services
         {
             _dispatcher.Invoke(() =>
             {
+                foreach (var turnKey in _activeTurns.Keys)
+                    _ignoredTurnKeys.Add(turnKey);
                 _entries.Clear();
                 _activeTurns.Clear();
+                _lastSpeakerIndex.Clear();
+            });
+        }
+
+        public void ResetStreamingState()
+        {
+            _dispatcher.Invoke(() =>
+            {
+                _activeTurns.Clear();
+                _ignoredTurnKeys.Clear();
                 _lastSpeakerIndex.Clear();
             });
         }

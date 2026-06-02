@@ -119,7 +119,7 @@ namespace LiveTranscript.Services
         public async IAsyncEnumerable<string> StreamAnswerAsync(
             string apiKey, string modelId,
             string question, string transcript, string jobDescription, string resume,
-            string? parentQuestion = null, string? parentAnswer = null)
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
         {
             var request = new ChatCompletionRequest
             {
@@ -127,7 +127,7 @@ namespace LiveTranscript.Services
                 Messages = new List<ChatMessage>
                 {
                     new() { Role = "system", Content = AiPromptTemplates.BuildAnswerSystemPrompt(jobDescription, resume) },
-                    new() { Role = "user", Content = AiPromptTemplates.BuildAnswerUserPrompt(question, transcript, parentQuestion, parentAnswer) }
+                    new() { Role = "user", Content = AiPromptTemplates.BuildAnswerUserPrompt(question, transcript, parentQuestion, parentAnswer, answerHistory) }
                 }
             };
 
@@ -151,6 +151,44 @@ namespace LiveTranscript.Services
             if (!string.IsNullOrWhiteSpace(answer))
             {
                 yield return answer;
+            }
+        }
+
+        public async IAsyncEnumerable<string> StreamJotNotesAsync(
+            string apiKey, string modelId,
+            string question, string paragraphAnswer, string transcript, string jobDescription, string resume,
+            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
+        {
+            var request = new ChatCompletionRequest
+            {
+                Model = modelId,
+                Messages = new List<ChatMessage>
+                {
+                    new() { Role = "system", Content = AiPromptTemplates.BuildJotNotesSystemPrompt(jobDescription, resume) },
+                    new() { Role = "user", Content = AiPromptTemplates.BuildJotNotesUserPrompt(question, paragraphAnswer, transcript, parentQuestion, parentAnswer, answerHistory) }
+                }
+            };
+
+            var json = JsonConvert.SerializeObject(request);
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("Authorization", $"Bearer {apiKey}");
+
+            var response = await _httpClient.SendAsync(httpRequest);
+            var responseText = await response.Content.ReadAsStringAsync();
+            if (!response.IsSuccessStatusCode)
+            {
+                yield return $"[Error: {responseText}]";
+                yield break;
+            }
+
+            var result = JsonConvert.DeserializeObject<ChatCompletionResponse>(responseText);
+            var notes = result?.Choices?.FirstOrDefault()?.Message?.Content ?? string.Empty;
+            if (!string.IsNullOrWhiteSpace(notes))
+            {
+                yield return notes;
             }
         }
 

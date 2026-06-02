@@ -21,6 +21,7 @@ namespace LiveTranscript.Models
         private int _number;
         private int _followUpNumber;
         private bool _isFollowUp;
+        private bool _isAnswerComplete;
         private string _parentQuestion = string.Empty;
 
         public int Number
@@ -80,6 +81,12 @@ namespace LiveTranscript.Models
         {
             get => _keyPoints;
             set { _keyPoints = value; OnPropertyChanged(nameof(KeyPoints)); }
+        }
+
+        public bool IsAnswerComplete
+        {
+            get => _isAnswerComplete;
+            set { _isAnswerComplete = value; OnPropertyChanged(nameof(IsAnswerComplete)); }
         }
 
         public bool IsExpanded

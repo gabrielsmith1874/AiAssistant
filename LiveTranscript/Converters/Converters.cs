@@ -1,5 +1,6 @@
 using System;
 using System.Globalization;
+using System.Windows;
 using System.Windows.Data;
 using System.Windows.Media;
 
@@ -68,6 +69,47 @@ namespace LiveTranscript.Converters
             return value is true
                 ? System.Windows.Visibility.Visible
                 : System.Windows.Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Shows content only when the current answer display mode matches the requested mode.
+    /// </summary>
+    public class AnswerModeVisibilityConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            var mode = value as string ?? "Paragraph";
+            var requestedMode = parameter as string ?? "Paragraph";
+
+            return string.Equals(mode, requestedMode, StringComparison.OrdinalIgnoreCase)
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+        }
+
+        public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)
+            => throw new NotSupportedException();
+    }
+
+    /// <summary>
+    /// Multiplies a base font size by the current text zoom factor.
+    /// </summary>
+    public class ZoomedFontSizeConverter : IValueConverter
+    {
+        public object Convert(object value, Type targetType, object parameter, CultureInfo culture)
+        {
+            var zoom = value is double factor ? factor : 1.0;
+            var baseSize = 12.0;
+            if (parameter is string text &&
+                double.TryParse(text, NumberStyles.Any, CultureInfo.InvariantCulture, out var parsed))
+            {
+                baseSize = parsed;
+            }
+
+            return baseSize * zoom;
         }
 
         public object ConvertBack(object value, Type targetType, object parameter, CultureInfo culture)

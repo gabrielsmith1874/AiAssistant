@@ -41,6 +41,7 @@ namespace LiveTranscript.Models
         public string SelectedOpenRouterModelId { get; set; } = string.Empty;
         public string SelectedLmStudioModelId { get; set; } = string.Empty;
         public string AiProvider { get; set; } = "OpenRouter";
+        public string ThemeId { get; set; } = "Original";
 
         // Window Persistence
         public double WindowTop { get; set; } = -1;

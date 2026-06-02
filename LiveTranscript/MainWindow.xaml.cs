@@ -32,6 +32,7 @@ namespace LiveTranscript
         private SessionState _state = SessionState.Idle;
         private bool _isPinned = true;
         private bool _isHudMode;
+        private bool _loadingSettings;
         private Rect _windowedBounds = Rect.Empty;
 
         private readonly DispatcherTimer _pulseTimer;
@@ -47,6 +48,11 @@ namespace LiveTranscript
         private bool _autoExtractEnabled;
         private int _lastExtractedEntryIndex;  // tracks how far we've extracted
         private bool _isExtracting;            // prevents overlapping calls
+        private int _transcriptGeneration;
+        private int _aiHistoryGeneration;
+        private readonly List<AnswerHistoryEntry> _answerHistoryEntries = new();
+        private string _cachedAnswerHistoryContext = string.Empty;
+        private int _cachedAnswerHistoryGeneration = -1;
         private const int MinNewWords = 6;
         private const int AutoStreamDebounceMs = 1400;
         private const int AutoStreamMaxWaitMs = 7000;
@@ -54,7 +60,13 @@ namespace LiveTranscript
         private const int MinManualIncrementalWords = 8;
         private const int ExtractionContextMaxChars = 9000;
         private const int AnswerContextMaxChars = 14000;
+        private const int AnswerHistoryMaxChars = 6000;
         private const int DeferredStreamStartMs = 1200;
+        private const string ParagraphAnswerMode = "Paragraph";
+        private const string NotesAnswerMode = "Notes";
+        private const double TextZoomMin = 0.85;
+        private const double TextZoomMax = 1.8;
+        private const double TextZoomStep = 0.1;
         private readonly HashSet<string> _warmedLmStudioModels = new();
         private readonly DispatcherTimer _autoStreamDebounceTimer;
         private DateTime _autoStreamPendingSince = DateTime.MinValue;
@@ -69,6 +81,44 @@ namespace LiveTranscript
         private double _hudResizeStartWidth;
         private double _hudResizeStartHeight;
         private bool _hudModulesInitialized;
+
+        private sealed class AnswerHistoryEntry
+        {
+            public required QuestionAnswer Qa { get; init; }
+            public required string Block { get; init; }
+        }
+
+        public static readonly DependencyProperty AnswerDisplayModeProperty =
+            DependencyProperty.Register(
+                nameof(AnswerDisplayMode),
+                typeof(string),
+                typeof(MainWindow),
+                new PropertyMetadata(ParagraphAnswerMode));
+
+        public string AnswerDisplayMode
+        {
+            get => (string)GetValue(AnswerDisplayModeProperty);
+            set => SetValue(AnswerDisplayModeProperty, value);
+        }
+
+        public static readonly DependencyProperty TextZoomFactorProperty =
+            DependencyProperty.Register(
+                nameof(TextZoomFactor),
+                typeof(double),
+                typeof(MainWindow),
+                new PropertyMetadata(1.0, OnTextZoomFactorChanged));
+
+        public double TextZoomFactor
+        {
+            get => (double)GetValue(TextZoomFactorProperty);
+            set => SetValue(TextZoomFactorProperty, value);
+        }
+
+        private static void OnTextZoomFactorChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            if (d is MainWindow window)
+                window.UpdateTextZoomText();
+        }
 
         // Global Hotkey
         private const int HOTKEY_ID = 9000;
@@ -129,6 +179,8 @@ namespace LiveTranscript
             HudTranscriptList.ItemsSource = _transcriptManager.Entries;
             QaList.ItemsSource = _qaItems;
             HudQaList.ItemsSource = _qaItems;
+            UpdateAnswerModeToggleText();
+            UpdateTextZoomText();
             _transcriptManager.Entries.CollectionChanged += (s, e) =>
             {
                 Dispatcher.InvokeAsync(() =>
@@ -163,6 +215,7 @@ namespace LiveTranscript
 
 
 
+            PopulateThemeSelector();
             LoadSettings();
 
             // Register global hotkey on load
@@ -369,7 +422,7 @@ namespace LiveTranscript
             TranscriptPanelBackdrop.BorderBrush = Brushes.Transparent;
             QaPanelBackdrop.Background = Brushes.Transparent;
             QaPanelBackdrop.BorderBrush = Brushes.Transparent;
-            SetHudTextCardTheme(true);
+            ApplyCurrentTheme();
 
             Topmost = true;
             SetClickThrough(false);
@@ -389,19 +442,6 @@ namespace LiveTranscript
             SetClickThrough(false);
             _isHudMode = false;
 
-            RootShell.Margin = new Thickness(8);
-            RootShell.CornerRadius = new CornerRadius(12);
-            RootShell.Background = new SolidColorBrush(Color.FromArgb(0xE6, 0x0D, 0x11, 0x17));
-            RootShell.BorderBrush = new SolidColorBrush(Color.FromArgb(0x40, 0xFF, 0xFF, 0xFF));
-            RootShell.BorderThickness = new Thickness(1);
-            RootShell.Effect = new DropShadowEffect
-            {
-                BlurRadius = 20,
-                ShadowDepth = 4,
-                Opacity = 0.5,
-                Color = Colors.Black
-            };
-
             TitleBarBorder.Visibility = Visibility.Visible;
             ControlsBarBorder.Visibility = Visibility.Visible;
             StatusBarBorder.Visibility = Visibility.Visible;
@@ -415,11 +455,7 @@ namespace LiveTranscript
             AiStatusText.Visibility = Visibility.Visible;
             HudExtractButton.Visibility = Visibility.Collapsed;
 
-            TranscriptPanelBackdrop.Background = Brushes.Transparent;
-            TranscriptPanelBackdrop.BorderBrush = Brushes.Transparent;
-            QaPanelBackdrop.Background = Brushes.Transparent;
-            QaPanelBackdrop.BorderBrush = Brushes.Transparent;
-            SetHudTextCardTheme(false);
+            ApplyCurrentTheme();
 
             UpdateModelBrowserVisibility();
 
@@ -464,22 +500,23 @@ namespace LiveTranscript
 
         private void SetHudTextCardTheme(bool hudEnabled)
         {
-            SetBrushColor("TranscriptCardBackgroundBrush",
-                hudEnabled ? Color.FromArgb(0xD8, 0x00, 0x00, 0x00) : Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF));
-            SetBrushColor("QaCardBackgroundBrush",
-                hudEnabled ? Color.FromArgb(0xD8, 0x00, 0x00, 0x00) : Color.FromArgb(0x18, 0xFF, 0xFF, 0xFF));
-            SetBrushColor("QaAnswerBackgroundBrush",
-                hudEnabled ? Color.FromArgb(0xC8, 0x00, 0x00, 0x00) : Color.FromArgb(0x10, 0xFF, 0xFF, 0xFF));
-            SetBrushColor("FollowUpCardBackgroundBrush",
-                hudEnabled ? Color.FromArgb(0xD2, 0x00, 0x00, 0x00) : Color.FromArgb(0x14, 0xFF, 0xFF, 0xFF));
-            SetBrushColor("FollowUpAnswerBackgroundBrush",
-                hudEnabled ? Color.FromArgb(0xC4, 0x00, 0x00, 0x00) : Color.FromArgb(0x0D, 0xFF, 0xFF, 0xFF));
+            ThemeManager.Apply(this, _settings?.ThemeId, hudEnabled);
         }
 
         private void SetBrushColor(string resourceKey, Color color)
         {
             if (Resources[resourceKey] is SolidColorBrush brush)
                 brush.Color = color;
+        }
+
+        private void ApplyCurrentTheme()
+        {
+            ThemeManager.Apply(this, _settings?.ThemeId, _isHudMode);
+            if (_autoExtractEnabled)
+            {
+                AutoExtractButton.Foreground = FindResource("AccentGreenBrush") as SolidColorBrush
+                    ?? FindResource("TextPrimaryBrush") as SolidColorBrush;
+            }
         }
 
         // ── Helpers ──
@@ -647,7 +684,11 @@ namespace LiveTranscript
 
         private void LoadSettings()
         {
+            _loadingSettings = true;
             _settings = AppSettings.Load();
+            _settings.ThemeId = ThemeManager.NormalizeThemeId(_settings.ThemeId);
+            SelectThemeInSettings(_settings.ThemeId);
+            ThemeManager.Apply(this, _settings.ThemeId, _isHudMode);
             SettingsApiKey.Text = _settings.OpenRouterApiKey;
             SettingsClaudeApiKey.Text = _settings.ClaudeApiKey;
             SettingsLmStudioApiKey.Text = _settings.LmStudioApiKey;
@@ -681,6 +722,46 @@ namespace LiveTranscript
                 UpdateStatus("⚠ Set API key(s) in Settings", isError: true);
             else
                 UpdateStatus("Ready — Press Start to begin");
+            _loadingSettings = false;
+        }
+
+        private void PopulateThemeSelector()
+        {
+            SettingsThemeSelector.Items.Clear();
+            foreach (var theme in ThemeManager.Themes)
+            {
+                SettingsThemeSelector.Items.Add(new ComboBoxItem
+                {
+                    Content = theme.Name,
+                    Tag = theme.Id
+                });
+            }
+        }
+
+        private void SelectThemeInSettings(string themeId)
+        {
+            for (var i = 0; i < SettingsThemeSelector.Items.Count; i++)
+            {
+                if (SettingsThemeSelector.Items[i] is ComboBoxItem item &&
+                    string.Equals(item.Tag as string, themeId, StringComparison.OrdinalIgnoreCase))
+                {
+                    SettingsThemeSelector.SelectedIndex = i;
+                    return;
+                }
+            }
+
+            SettingsThemeSelector.SelectedIndex = 0;
+        }
+
+        private string GetSelectedThemeId()
+        {
+            if (SettingsThemeSelector.SelectedItem is ComboBoxItem item &&
+                item.Tag is string themeId)
+            {
+                return ThemeManager.NormalizeThemeId(themeId);
+            }
+
+            return "Original";
         }
 
         private void UpdateModelBrowserVisibility()
@@ -985,7 +1066,26 @@ namespace LiveTranscript
             Close();
         }
 
-        private void Clear_Click(object sender, RoutedEventArgs e) => _transcriptManager.Clear();
+        private void Clear_Click(object sender, RoutedEventArgs e)
+        {
+            ClearTranscriptState();
+            UpdateStatus("Transcript cleared");
+        }
+
+        private void ClearTranscriptState()
+        {
+            _autoStreamDebounceTimer.Stop();
+            _autoStreamPendingSince = DateTime.MinValue;
+            _lastExtractedEntryIndex = 0;
+            _transcriptGeneration++;
+            _transcriptManager.Clear();
+        }
+
+        private bool IsCurrentAiWork(int aiHistoryGeneration, int transcriptGeneration)
+        {
+            return aiHistoryGeneration == _aiHistoryGeneration &&
+                   transcriptGeneration == _transcriptGeneration;
+        }
 
         private async void StartStop_Click(object sender, RoutedEventArgs e)
         {
@@ -1038,6 +1138,8 @@ namespace LiveTranscript
 
             var modelId = GetAiModelId();
             var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
+            var transcriptGeneration = _transcriptGeneration;
+            var aiHistoryGeneration = _aiHistoryGeneration;
 
             try
             {
@@ -1065,6 +1167,9 @@ namespace LiveTranscript
                         apiKey, modelId, transcript, BuildKnownQuestionTexts());
                 }
 
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    return;
+
                 _lastExtractedEntryIndex = _transcriptManager.Entries.Count;
                 if (extractedQuestions.Count == 0)
                 {
@@ -1086,7 +1191,7 @@ namespace LiveTranscript
                     // QaList.ItemsSource is already bound to _qaItems in constructor
                     AiStatusText.Text = $"{newQas.Count} questions found. Streaming first answer...";
 
-                    _ = StartStreamingAnswersWithPriority(newQas, apiKey, modelId, BuildAnswerContextText());
+                    _ = StartStreamingAnswersWithPriority(newQas, apiKey, modelId, BuildAnswerContextText(), aiHistoryGeneration, transcriptGeneration);
                 }
 
                 UpdateStatus("✅ Questions extracted");
@@ -1109,34 +1214,50 @@ namespace LiveTranscript
             string apiKey,
             string modelId,
             string transcript,
+            int aiHistoryGeneration,
+            int transcriptGeneration,
             QuestionAnswer? parentQa = null,
             TaskCompletionSource<bool>? firstChunkSignal = null)
         {
             try
             {
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                {
+                    firstChunkSignal?.TrySetResult(true);
+                    return;
+                }
+
                 var fullAnswer = new StringBuilder();
                 bool hasStarted = false;
+                qa.KeyPoints = "⏳ Jot notes will appear after the paragraph answer finishes.";
                 var parentAnswerContext =
                     parentQa != null &&
-                    !string.IsNullOrWhiteSpace(parentQa.ParagraphAnswer) &&
-                    !parentQa.ParagraphAnswer.StartsWith("⏳", StringComparison.Ordinal)
+                    parentQa.IsAnswerComplete &&
+                    IsUsableAnswerText(parentQa.ParagraphAnswer)
                         ? parentQa.ParagraphAnswer
                         : null;
+                var answerHistoryContext = BuildAnswerHistoryContext(qa, AnswerHistoryMaxChars);
 
                 var stream = IsLmStudio
                     ? _lmStudioService.StreamAnswerAsync(
                         _settings.LmStudioBaseUrl, apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                        parentQa?.Question, parentAnswerContext)
+                        parentQa?.Question, parentAnswerContext, answerHistoryContext)
                     : IsClaude
                         ? _claudeService.StreamAnswerAsync(
                         apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                        parentQa?.Question, parentAnswerContext)
+                        parentQa?.Question, parentAnswerContext, answerHistoryContext)
                         : _openRouterService.StreamAnswerAsync(
                             apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                            parentQa?.Question, parentAnswerContext);
+                            parentQa?.Question, parentAnswerContext, answerHistoryContext);
 
                 await foreach (var chunk in stream)
                 {
+                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    {
+                        firstChunkSignal?.TrySetResult(true);
+                        return;
+                    }
+
                     if (!hasStarted)
                     {
                         qa.ParagraphAnswer = ""; // Clear the "Thinking..." placeholder
@@ -1158,8 +1279,15 @@ namespace LiveTranscript
                     }
                 }
 
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                {
+                    firstChunkSignal?.TrySetResult(true);
+                    return;
+                }
+
                 // Tracking answered questions to avoid duplicates in future extractions
-                var answered = $"Q: {qa.Question}\nA: {fullAnswer}";
+                var generatedAnswer = fullAnswer.ToString().Trim();
+                var answered = $"Q: {qa.Question}\nA: {generatedAnswer}";
                 if (IsLmStudio)
                     _lmStudioService.PreviouslyAnswered.Add(answered);
                 else if (IsClaude)
@@ -1167,18 +1295,102 @@ namespace LiveTranscript
                 else
                     _openRouterService.PreviouslyAnswered.Add(answered);
 
+                if (IsUsableAnswerText(generatedAnswer))
+                {
+                    MarkAnswerComplete(qa, generatedAnswer, aiHistoryGeneration);
+                    _ = GenerateJotNotesAsync(qa, apiKey, modelId, transcript, aiHistoryGeneration, transcriptGeneration, parentQa, generatedAnswer, answerHistoryContext);
+                }
+                else
+                {
+                    qa.IsAnswerComplete = false;
+                    qa.KeyPoints = string.Empty;
+                }
+
                 if (!hasStarted)
                     firstChunkSignal?.TrySetResult(true);
             }
             catch (Exception ex)
             {
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                {
+                    firstChunkSignal?.TrySetResult(true);
+                    return;
+                }
+
                 qa.ParagraphAnswer = $"[Error streaming answer: {ex.Message}]";
+                qa.IsAnswerComplete = false;
+                qa.KeyPoints = string.Empty;
                 firstChunkSignal?.TrySetResult(true);
+            }
+        }
+
+        private async Task GenerateJotNotesAsync(
+            QuestionAnswer qa,
+            string apiKey,
+            string modelId,
+            string transcript,
+            int aiHistoryGeneration,
+            int transcriptGeneration,
+            QuestionAnswer? parentQa,
+            string paragraphAnswer,
+            string answerHistoryContext)
+        {
+            try
+            {
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    return;
+
+                qa.KeyPoints = "⏳ Generating jot notes...";
+                var parentAnswerContext =
+                    parentQa != null &&
+                    parentQa.IsAnswerComplete &&
+                    IsUsableAnswerText(parentQa.ParagraphAnswer)
+                        ? parentQa.ParagraphAnswer
+                        : null;
+
+                var stream = IsLmStudio
+                    ? _lmStudioService.StreamJotNotesAsync(
+                        _settings.LmStudioBaseUrl, apiKey, modelId, qa.Question, paragraphAnswer, transcript, _settings.JobDescription, _settings.Resume,
+                        parentQa?.Question, parentAnswerContext, answerHistoryContext)
+                    : IsClaude
+                        ? _claudeService.StreamJotNotesAsync(
+                            apiKey, modelId, qa.Question, paragraphAnswer, transcript, _settings.JobDescription, _settings.Resume,
+                            parentQa?.Question, parentAnswerContext, answerHistoryContext)
+                        : _openRouterService.StreamJotNotesAsync(
+                            apiKey, modelId, qa.Question, paragraphAnswer, transcript, _settings.JobDescription, _settings.Resume,
+                            parentQa?.Question, parentAnswerContext, answerHistoryContext);
+
+                var hasStarted = false;
+                await foreach (var chunk in stream)
+                {
+                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                        return;
+
+                    if (!hasStarted)
+                    {
+                        qa.KeyPoints = string.Empty;
+                        hasStarted = true;
+                    }
+
+                    qa.KeyPoints += chunk;
+                }
+
+                if (!hasStarted)
+                    qa.KeyPoints = string.Empty;
+            }
+            catch (Exception ex)
+            {
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    return;
+
+                qa.KeyPoints = $"[Error generating jot notes: {ex.Message}]";
             }
         }
 
         private void ClearAiHistory_Click(object sender, RoutedEventArgs e)
         {
+            _aiHistoryGeneration++;
+            ClearAnswerHistoryContextCache();
             _openRouterService.ClearHistory();
             _claudeService.ClearHistory();
             _lmStudioService.ClearHistory();
@@ -1280,6 +1492,8 @@ namespace LiveTranscript
             {
                 var modelId = GetAiModelId();
                 var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
+                var transcriptGeneration = _transcriptGeneration;
+                var aiHistoryGeneration = _aiHistoryGeneration;
                 AiStatusText.Text = $"Auto-extracting ({wordCount} new words)…";
 
                 if (IsClaude || IsLmStudio || IsOpenRouter)
@@ -1292,6 +1506,10 @@ namespace LiveTranscript
                                 _settings.LmStudioBaseUrl, apiKey, modelId, extractionContext, BuildKnownQuestionTexts())
                             : await _openRouterService.ExtractQuestionTextsOnlyAsync(
                                 apiKey, modelId, extractionContext, BuildKnownQuestionTexts());
+
+                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                        return;
+
                     _lastExtractedEntryIndex = entries.Count;
                     _autoStreamPendingSince = DateTime.MinValue;
 
@@ -1305,7 +1523,7 @@ namespace LiveTranscript
                         {
                             EnsureQaListBound();
                             AiStatusText.Text = $"{newQas.Count} questions found (auto). Streaming first answer...";
-                            _ = StartStreamingAnswersWithPriority(newQas, apiKey, modelId, BuildAnswerContextText());
+                            _ = StartStreamingAnswersWithPriority(newQas, apiKey, modelId, BuildAnswerContextText(), aiHistoryGeneration, transcriptGeneration);
                         }
                         else
                         {
@@ -1346,28 +1564,107 @@ namespace LiveTranscript
             ToggleAllButton.Content = _allExpanded ? "👁 Hide All" : "👁 Show All";
         }
 
+        private void ToggleAnswerMode_Click(object sender, RoutedEventArgs e)
+        {
+            AnswerDisplayMode = string.Equals(AnswerDisplayMode, NotesAnswerMode, StringComparison.OrdinalIgnoreCase)
+                ? ParagraphAnswerMode
+                : NotesAnswerMode;
+
+            UpdateAnswerModeToggleText();
+            UpdateStatus(string.Equals(AnswerDisplayMode, NotesAnswerMode, StringComparison.OrdinalIgnoreCase)
+                ? "Showing jot notes"
+                : "Showing paragraph answers");
+        }
+
+        private void UpdateAnswerModeToggleText()
+        {
+            var isNotes = string.Equals(AnswerDisplayMode, NotesAnswerMode, StringComparison.OrdinalIgnoreCase);
+            AnswerModeToggleButton.Content = isNotes ? "Mode: Jot Notes" : "Mode: Paragraph";
+            AnswerModeToggleButton.ToolTip = "Switch between full paragraph answers and jot notes";
+            HudAnswerModeToggleButton.Content = isNotes ? "Jot Notes" : "Paragraph";
+            HudAnswerModeToggleButton.ToolTip = "Switch between full paragraph answers and jot notes";
+        }
+
+        private void TextZoomIn_Click(object sender, RoutedEventArgs e)
+        {
+            AdjustTextZoom(TextZoomStep);
+        }
+
+        private void TextZoomOut_Click(object sender, RoutedEventArgs e)
+        {
+            AdjustTextZoom(-TextZoomStep);
+        }
+
+        private void TextZoomReset_MouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+        {
+            SetTextZoom(1.0);
+            e.Handled = true;
+        }
+
+        private void AdjustTextZoom(double delta)
+        {
+            SetTextZoom(TextZoomFactor + delta);
+        }
+
+        private void SetTextZoom(double factor)
+        {
+            TextZoomFactor = Math.Round(Math.Clamp(factor, TextZoomMin, TextZoomMax), 2);
+            UpdateStatus($"Text zoom {TextZoomFactor * 100:0}%");
+        }
+
+        private void UpdateTextZoomText()
+        {
+            var text = $"{TextZoomFactor * 100:0}%";
+            TextZoomText.Text = text;
+            HudTextZoomText.Text = text;
+        }
+
         private async Task StartStreamingAnswersWithPriority(
             List<QuestionAnswer> newQas,
             string apiKey,
             string modelId,
-            string transcriptContext)
+            string transcriptContext,
+            int aiHistoryGeneration,
+            int transcriptGeneration)
         {
             if (newQas.Count == 0) return;
+            if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration)) return;
 
             var first = newQas[0];
-            var firstParent = ResolveParentForStreaming(first);
             var firstChunkSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            _ = ProcessStreamingAnswer(first, apiKey, modelId, transcriptContext, firstParent, firstChunkSignal);
+            var answerTasks = new Dictionary<QuestionAnswer, Task>();
+
+            Task StartAnswerAsync(QuestionAnswer qa, TaskCompletionSource<bool>? firstChunk = null)
+            {
+                if (answerTasks.TryGetValue(qa, out var existingTask))
+                    return existingTask;
+
+                async Task RunAsync()
+                {
+                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    {
+                        firstChunk?.TrySetResult(true);
+                        return;
+                    }
+
+                    var parent = ResolveParentForStreaming(qa);
+                    if (parent != null && newQas.Contains(parent))
+                        await StartAnswerAsync(parent);
+
+                    await ProcessStreamingAnswer(qa, apiKey, modelId, transcriptContext, aiHistoryGeneration, transcriptGeneration, parent, firstChunk);
+                }
+
+                var task = RunAsync();
+                answerTasks[qa] = task;
+                return task;
+            }
+
+            _ = StartAnswerAsync(first, firstChunkSignal);
 
             if (newQas.Count == 1) return;
 
             await Task.WhenAny(firstChunkSignal.Task, Task.Delay(DeferredStreamStartMs));
-            for (int i = 1; i < newQas.Count; i++)
-            {
-                var qa = newQas[i];
-                var parent = ResolveParentForStreaming(qa);
-                _ = ProcessStreamingAnswer(qa, apiKey, modelId, transcriptContext, parent);
-            }
+            await Task.WhenAll(newQas.Select(qa => StartAnswerAsync(qa)));
         }
 
         private void EnsureQaListBound()
@@ -1405,6 +1702,54 @@ namespace LiveTranscript
         private string BuildAnswerContextText()
         {
             return BuildRecentTranscriptText(AnswerContextMaxChars);
+        }
+
+        private string BuildAnswerHistoryContext(QuestionAnswer currentQa, int maxChars)
+        {
+            var blocks = new List<string>();
+
+            foreach (var qa in _qaItems)
+            {
+                AddHistoryBlock(qa);
+                foreach (var followUp in qa.FollowUps)
+                    AddHistoryBlock(followUp);
+            }
+
+            if (blocks.Count == 0) return string.Empty;
+
+            var selected = new List<string>();
+            int totalChars = 0;
+            for (int i = blocks.Count - 1; i >= 0; i--)
+            {
+                var block = blocks[i];
+                int blockChars = block.Length + 2;
+                if (totalChars + blockChars > maxChars && selected.Count > 0)
+                    break;
+
+                selected.Add(block.Length > maxChars ? TrimToLastChars(block, maxChars) : block);
+                totalChars += Math.Min(blockChars, maxChars);
+            }
+
+            selected.Reverse();
+            return string.Join("\n\n", selected).Trim();
+
+            void AddHistoryBlock(QuestionAnswer qa)
+            {
+                if (ReferenceEquals(qa, currentQa) || !IsUsableAnswerText(qa.ParagraphAnswer))
+                    return;
+
+                blocks.Add($"{qa.DisplayBadge}: {qa.Question}\nAnswer: {qa.ParagraphAnswer.Trim()}");
+            }
+        }
+
+        private static bool IsUsableAnswerText(string? answer)
+        {
+            if (string.IsNullOrWhiteSpace(answer))
+                return false;
+
+            var trimmed = answer.Trim();
+            return !trimmed.StartsWith("⏳", StringComparison.Ordinal) &&
+                   !trimmed.StartsWith("[Error", StringComparison.OrdinalIgnoreCase);
         }
 
         private string BuildRecentTranscriptText(int maxChars)
@@ -1591,18 +1936,31 @@ namespace LiveTranscript
             _settings.DeepgramApiKey = SettingsDeepgramKey.Text.Trim();
             _settings.JobDescription = SettingsJobDesc.Text.Trim();
             _settings.Resume = SettingsResume.Text.Trim();
+            _settings.ThemeId = GetSelectedThemeId();
             _settings.AiProvider = SettingsAiProvider.SelectedIndex switch
             {
                 1 => "Claude",
                 2 => "LMStudio",
                 _ => "OpenRouter"
             };
+            ApplyCurrentTheme();
             _settings.Save();
             UpdateModelBrowserVisibility();
             _ = LoadModelsAsync();
             QueueLmStudioWarmup();
             UpdateStatus("Settings saved ✓");
             SettingsPanel.Visibility = Visibility.Collapsed;
+        }
+
+        private void SettingsThemeSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            if (_loadingSettings || _settings == null)
+                return;
+
+            _settings.ThemeId = GetSelectedThemeId();
+            ApplyCurrentTheme();
+            _settings.Save();
+            UpdateStatus($"Theme saved: {ThemeManager.GetThemeName(_settings.ThemeId)}");
         }
 
         private string GetSavedModelIdForCurrentProvider()
@@ -1674,6 +2032,7 @@ namespace LiveTranscript
                 _speakerClient?.Dispose();
                 _micClient = null;
                 _speakerClient = null;
+                _transcriptManager.ResetStreamingState();
 
                 QaList.ItemsSource = _qaItems;
 
@@ -1817,6 +2176,30 @@ namespace LiveTranscript
             {
                 CycleOverlayMode();
                 return;
+            }
+
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+            {
+                if (e.Key == Key.OemPlus || e.Key == Key.Add)
+                {
+                    AdjustTextZoom(TextZoomStep);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.OemMinus || e.Key == Key.Subtract)
+                {
+                    AdjustTextZoom(-TextZoomStep);
+                    e.Handled = true;
+                    return;
+                }
+
+                if (e.Key == Key.D0 || e.Key == Key.NumPad0)
+                {
+                    SetTextZoom(1.0);
+                    e.Handled = true;
+                    return;
+                }
             }
 
             // Ignore if user is typing in a text box
