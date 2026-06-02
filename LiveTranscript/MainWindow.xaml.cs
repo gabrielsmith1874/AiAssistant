@@ -1706,22 +1706,67 @@ namespace LiveTranscript
 
         private string BuildAnswerHistoryContext(QuestionAnswer currentQa, int maxChars)
         {
-            var blocks = new List<string>();
+            if (_cachedAnswerHistoryGeneration != _aiHistoryGeneration)
+                RebuildAnswerHistoryContextCache(maxChars);
 
-            foreach (var qa in _qaItems)
+            if (_answerHistoryEntries.Count == 0)
+                return string.Empty;
+
+            if (!_answerHistoryEntries.Any(entry => ReferenceEquals(entry.Qa, currentQa)))
+                return _cachedAnswerHistoryContext;
+
+            return BuildAnswerHistoryContextFromEntries(
+                _answerHistoryEntries.Where(entry => !ReferenceEquals(entry.Qa, currentQa)),
+                maxChars);
+        }
+
+        private void MarkAnswerComplete(QuestionAnswer qa, string completedAnswer, int aiHistoryGeneration)
+        {
+            if (aiHistoryGeneration != _aiHistoryGeneration || !IsUsableAnswerText(completedAnswer))
             {
-                AddHistoryBlock(qa);
-                foreach (var followUp in qa.FollowUps)
-                    AddHistoryBlock(followUp);
+                qa.IsAnswerComplete = false;
+                return;
             }
 
-            if (blocks.Count == 0) return string.Empty;
+            qa.ParagraphAnswer = completedAnswer;
+            qa.IsAnswerComplete = true;
 
+            _answerHistoryEntries.RemoveAll(entry => ReferenceEquals(entry.Qa, qa));
+            _answerHistoryEntries.Add(new AnswerHistoryEntry
+            {
+                Qa = qa,
+                Block = BuildAnswerHistoryBlock(qa, completedAnswer)
+            });
+            RebuildAnswerHistoryContextCache(AnswerHistoryMaxChars);
+        }
+
+        private void ClearAnswerHistoryContextCache()
+        {
+            foreach (var qa in AllQuestions())
+                qa.IsAnswerComplete = false;
+
+            _answerHistoryEntries.Clear();
+            _cachedAnswerHistoryContext = string.Empty;
+            _cachedAnswerHistoryGeneration = _aiHistoryGeneration;
+        }
+
+        private void RebuildAnswerHistoryContextCache(int maxChars)
+        {
+            _answerHistoryEntries.RemoveAll(entry =>
+                !entry.Qa.IsAnswerComplete || !IsUsableAnswerText(entry.Qa.ParagraphAnswer));
+
+            _cachedAnswerHistoryContext = BuildAnswerHistoryContextFromEntries(_answerHistoryEntries, maxChars);
+            _cachedAnswerHistoryGeneration = _aiHistoryGeneration;
+        }
+
+        private string BuildAnswerHistoryContextFromEntries(IEnumerable<AnswerHistoryEntry> entries, int maxChars)
+        {
             var selected = new List<string>();
             int totalChars = 0;
-            for (int i = blocks.Count - 1; i >= 0; i--)
+
+            foreach (var entry in entries.Reverse())
             {
-                var block = blocks[i];
+                var block = entry.Block;
                 int blockChars = block.Length + 2;
                 if (totalChars + blockChars > maxChars && selected.Count > 0)
                     break;
@@ -1732,14 +1777,11 @@ namespace LiveTranscript
 
             selected.Reverse();
             return string.Join("\n\n", selected).Trim();
+        }
 
-            void AddHistoryBlock(QuestionAnswer qa)
-            {
-                if (ReferenceEquals(qa, currentQa) || !IsUsableAnswerText(qa.ParagraphAnswer))
-                    return;
-
-                blocks.Add($"{qa.DisplayBadge}: {qa.Question}\nAnswer: {qa.ParagraphAnswer.Trim()}");
-            }
+        private static string BuildAnswerHistoryBlock(QuestionAnswer qa, string answer)
+        {
+            return $"{qa.DisplayBadge}: {qa.Question}\nAnswer: {answer.Trim()}";
         }
 
         private static bool IsUsableAnswerText(string? answer)
