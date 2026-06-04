@@ -59,9 +59,7 @@ namespace LiveTranscript
         private const int AutoStreamOverlapEntries = 4;
         private const int MinManualIncrementalWords = 8;
         private const int ExtractionContextMaxChars = 9000;
-        private const int AnswerContextMaxChars = 14000;
         private const int AnswerHistoryMaxChars = 6000;
-        private const int DeferredStreamStartMs = 1200;
         private const string ParagraphAnswerMode = "Paragraph";
         private const string NotesAnswerMode = "Notes";
         private const double TextZoomMin = 0.85;
@@ -531,7 +529,6 @@ namespace LiveTranscript
         private bool IsDeepgram => ProviderSelector.SelectedIndex == 1;
         private bool IsClaude => _settings.AiProvider == "Claude";
         private bool IsLmStudio => _settings.AiProvider == "LMStudio";
-        private bool IsOpenRouter => !IsClaude && !IsLmStudio;
         private bool IsNotesAnswerMode() =>
             string.Equals(AnswerDisplayMode, NotesAnswerMode, StringComparison.OrdinalIgnoreCase);
 
@@ -586,7 +583,7 @@ namespace LiveTranscript
                 key.Contains(NormalizeQuestionKey(q.Question), StringComparison.OrdinalIgnoreCase));
         }
 
-        private void AddClaudeQuestions(
+        private void AddExtractedQuestions(
             List<ExtractedQuestion> extractedQuestions,
             List<QuestionAnswer> newQas,
             ref int startNum,
@@ -644,37 +641,6 @@ namespace LiveTranscript
             }
         }
 
-        private void AddOpenRouterQuestions(List<QuestionAnswer> parsedItems, ref int startNum)
-        {
-            foreach (var item in parsedItems)
-            {
-                var question = item.Question?.Trim() ?? string.Empty;
-                if (string.IsNullOrWhiteSpace(question) || IsDuplicateQuestion(question))
-                    continue;
-
-                QuestionAnswer? parent = null;
-                if (item.IsFollowUp)
-                {
-                    parent = FindMainQuestionByText(item.ParentQuestion);
-                    parent ??= _qaItems.LastOrDefault();
-                }
-
-                item.Question = question;
-                if (item.IsFollowUp && parent != null)
-                {
-                    item.ParentQuestion = parent.Question;
-                    item.FollowUpNumber = parent.FollowUps.Count + 1;
-                    parent.FollowUps.Add(item);
-                }
-                else
-                {
-                    item.IsFollowUp = false;
-                    item.Number = ++startNum;
-                    _qaItems.Add(item);
-                }
-            }
-        }
-
         private string GetAiApiKey()
         {
             if (IsClaude) return _settings.ClaudeApiKey;
@@ -687,6 +653,36 @@ namespace LiveTranscript
             if (IsClaude)
                 return "claude-haiku-4-5";
             return _selectedModel?.Id ?? GetSavedModelIdForCurrentProvider();
+        }
+
+        private string GetAiModelDisplayName() =>
+            IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name ?? GetAiModelId();
+
+        private Task<List<ExtractedQuestion>> ExtractQuestionAnswersForCurrentProviderAsync(
+            string apiKey,
+            string modelId,
+            string transcript,
+            IEnumerable<string> knownQuestions,
+            string answerHistory,
+            bool useNotesMode)
+        {
+            if (IsLmStudio)
+            {
+                return _lmStudioService.ExtractQuestionAnswersAsync(
+                    _settings.LmStudioBaseUrl, apiKey, modelId, transcript, knownQuestions,
+                    _settings.JobDescription, _settings.Resume, answerHistory, useNotesMode);
+            }
+
+            if (IsClaude)
+            {
+                return _claudeService.ExtractQuestionAnswersAsync(
+                    apiKey, modelId, transcript, knownQuestions,
+                    _settings.JobDescription, _settings.Resume, answerHistory, useNotesMode);
+            }
+
+            return _openRouterService.ExtractQuestionAnswersAsync(
+                apiKey, modelId, transcript, knownQuestions,
+                _settings.JobDescription, _settings.Resume, answerHistory, useNotesMode);
         }
 
         private string GetApiKey()
@@ -1158,7 +1154,7 @@ namespace LiveTranscript
             }
 
             var modelId = GetAiModelId();
-            var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
+            var modelName = GetAiModelDisplayName();
             var transcriptGeneration = _transcriptGeneration;
             var aiHistoryGeneration = _aiHistoryGeneration;
             var useNotesMode = IsNotesAnswerMode();
@@ -1170,29 +1166,16 @@ namespace LiveTranscript
                 ExtractButton.Content = "⏳  Analyzing…";
                 HudExtractButton.IsEnabled = false;
                 HudExtractButton.Content = "⏳ Working…";
-                AiStatusText.Text = IsClaude
-                    ? $"Extracting and generating {answerModeName} with {modelName}…"
-                    : $"Extracting questions with {modelName}…";
+                AiStatusText.Text = $"Extracting and generating {answerModeName} with {modelName}…";
                 UpdateStatus(AiStatusText.Text);
 
-                List<ExtractedQuestion> extractedQuestions;
-                if (IsClaude)
-                {
-                    extractedQuestions = await _claudeService.ExtractQuestionAnswersAsync(
-                        apiKey, modelId, transcript, BuildKnownQuestionTexts(),
-                        _settings.JobDescription, _settings.Resume,
-                        BuildAnswerHistoryContext(AnswerHistoryMaxChars), useNotesMode);
-                }
-                else if (IsLmStudio)
-                {
-                    extractedQuestions = await _lmStudioService.ExtractQuestionTextsOnlyAsync(
-                        _settings.LmStudioBaseUrl, apiKey, modelId, transcript, BuildKnownQuestionTexts());
-                }
-                else
-                {
-                    extractedQuestions = await _openRouterService.ExtractQuestionTextsOnlyAsync(
-                        apiKey, modelId, transcript, BuildKnownQuestionTexts());
-                }
+                var extractedQuestions = await ExtractQuestionAnswersForCurrentProviderAsync(
+                    apiKey,
+                    modelId,
+                    transcript,
+                    BuildKnownQuestionTexts(),
+                    BuildAnswerHistoryContext(AnswerHistoryMaxChars),
+                    useNotesMode);
 
                 if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
                     return;
@@ -1206,7 +1189,7 @@ namespace LiveTranscript
                 {
                     int startNum = _qaItems.Count;
                     var newQas = new List<QuestionAnswer>();
-                    AddClaudeQuestions(extractedQuestions, newQas, ref startNum, useNotesMode, IsClaude, aiHistoryGeneration);
+                    AddExtractedQuestions(extractedQuestions, newQas, ref startNum, useNotesMode, true, aiHistoryGeneration);
                     EnsureQaListBound();
 
                     if (newQas.Count == 0)
@@ -1215,18 +1198,7 @@ namespace LiveTranscript
                         return;
                     }
 
-                    // QaList.ItemsSource is already bound to _qaItems in constructor
-                    if (IsClaude)
-                    {
-                        AiStatusText.Text = $"{newQas.Count} questions found. Generated {answerModeName}.";
-                    }
-                    else
-                    {
-                        AiStatusText.Text = $"{newQas.Count} questions found. Streaming first {answerModeName}...";
-                        _ = StartStreamingAnswersWithPriority(
-                            newQas, apiKey, modelId, BuildAnswerContextText(),
-                            aiHistoryGeneration, transcriptGeneration, useNotesMode);
-                    }
+                    AiStatusText.Text = $"{newQas.Count} questions found. Generated {answerModeName}.";
                 }
 
                 UpdateStatus("✅ Questions extracted");
@@ -1244,175 +1216,18 @@ namespace LiveTranscript
             }
         }
 
-        private async Task ProcessStreamingAnswer(
-            QuestionAnswer qa,
-            string apiKey,
-            string modelId,
-            string transcript,
-            int aiHistoryGeneration,
-            int transcriptGeneration,
-            bool useNotesMode,
-            QuestionAnswer? parentQa = null,
-            TaskCompletionSource<bool>? firstChunkSignal = null)
-        {
-            try
-            {
-                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                {
-                    firstChunkSignal?.TrySetResult(true);
-                    return;
-                }
-
-                var fullResponse = new StringBuilder();
-                bool hasStarted = false;
-                if (useNotesMode)
-                {
-                    qa.ParagraphAnswer = string.Empty;
-                    qa.KeyPoints = "⏳ Generating jot notes...";
-                }
-                else
-                {
-                    qa.ParagraphAnswer = "⏳ Generating...";
-                    qa.KeyPoints = string.Empty;
-                }
-
-                var parentAnswerContext =
-                    parentQa != null &&
-                    parentQa.IsAnswerComplete &&
-                    IsUsableAnswerText(GetActiveResponseText(parentQa, useNotesMode))
-                        ? GetActiveResponseText(parentQa, useNotesMode)
-                        : null;
-                var answerHistoryContext = BuildAnswerHistoryContext(qa, AnswerHistoryMaxChars);
-
-                var stream = useNotesMode
-                    ? IsLmStudio
-                        ? _lmStudioService.StreamJotNotesAsync(
-                            _settings.LmStudioBaseUrl, apiKey, modelId, qa.Question, string.Empty, transcript, _settings.JobDescription, _settings.Resume,
-                            parentQa?.Question, parentAnswerContext, answerHistoryContext)
-                        : IsClaude
-                            ? _claudeService.StreamJotNotesAsync(
-                                apiKey, modelId, qa.Question, string.Empty, transcript, _settings.JobDescription, _settings.Resume,
-                                parentQa?.Question, parentAnswerContext, answerHistoryContext)
-                            : _openRouterService.StreamJotNotesAsync(
-                                apiKey, modelId, qa.Question, string.Empty, transcript, _settings.JobDescription, _settings.Resume,
-                                parentQa?.Question, parentAnswerContext, answerHistoryContext)
-                    : IsLmStudio
-                        ? _lmStudioService.StreamAnswerAsync(
-                            _settings.LmStudioBaseUrl, apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                            parentQa?.Question, parentAnswerContext, answerHistoryContext)
-                        : IsClaude
-                            ? _claudeService.StreamAnswerAsync(
-                                apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                                parentQa?.Question, parentAnswerContext, answerHistoryContext)
-                            : _openRouterService.StreamAnswerAsync(
-                                apiKey, modelId, qa.Question, transcript, _settings.JobDescription, _settings.Resume,
-                                parentQa?.Question, parentAnswerContext, answerHistoryContext);
-
-                await foreach (var chunk in stream)
-                {
-                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                    {
-                        firstChunkSignal?.TrySetResult(true);
-                        return;
-                    }
-
-                    if (!hasStarted)
-                    {
-                        if (useNotesMode)
-                            qa.KeyPoints = string.Empty;
-                        else
-                            qa.ParagraphAnswer = string.Empty;
-                        hasStarted = true;
-                        firstChunkSignal?.TrySetResult(true);
-                    }
-
-                    if (useNotesMode)
-                        qa.KeyPoints += chunk;
-                    else
-                        qa.ParagraphAnswer += chunk;
-
-                    fullResponse.Append(chunk);
-                    
-                    // Auto-scroll logic moved here to ensure it's on UI thread if needed,
-                    // but since the active response triggers PropertyChanged, we just need to
-                    // ensure the scroller follows.
-                    if (qa == _qaItems.LastOrDefault())
-                    {
-                        Dispatcher.Invoke(() => QaScroller.ScrollToEnd());
-                        if (_isHudMode)
-                            Dispatcher.Invoke(() => HudQaScroller.ScrollToEnd());
-                    }
-                }
-
-                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                {
-                    firstChunkSignal?.TrySetResult(true);
-                    return;
-                }
-
-                // Tracking answered questions to avoid duplicates in future extractions
-                var generatedResponse = fullResponse.ToString().Trim();
-                var answered = $"Q: {qa.Question}\n{(useNotesMode ? "Notes" : "A")}: {generatedResponse}";
-                if (IsLmStudio)
-                    _lmStudioService.PreviouslyAnswered.Add(answered);
-                else if (IsClaude)
-                    _claudeService.PreviouslyAnswered.Add(answered);
-                else
-                    _openRouterService.PreviouslyAnswered.Add(answered);
-
-                if (IsUsableAnswerText(generatedResponse))
-                {
-                    MarkAnswerComplete(qa, generatedResponse, aiHistoryGeneration, useNotesMode);
-                }
-                else
-                {
-                    qa.IsAnswerComplete = false;
-                    if (useNotesMode)
-                        qa.KeyPoints = string.Empty;
-                    else
-                        qa.ParagraphAnswer = string.Empty;
-                }
-
-                if (!hasStarted)
-                    firstChunkSignal?.TrySetResult(true);
-            }
-            catch (Exception ex)
-            {
-                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                {
-                    firstChunkSignal?.TrySetResult(true);
-                    return;
-                }
-
-                var error = $"[Error streaming {ActiveAnswerModeName(useNotesMode)}: {ex.Message}]";
-                if (useNotesMode)
-                {
-                    qa.ParagraphAnswer = string.Empty;
-                    qa.KeyPoints = error;
-                }
-                else
-                {
-                    qa.ParagraphAnswer = error;
-                    qa.KeyPoints = string.Empty;
-                }
-                qa.IsAnswerComplete = false;
-                firstChunkSignal?.TrySetResult(true);
-            }
-        }
-
         private void ClearAiHistory_Click(object sender, RoutedEventArgs e)
         {
             _aiHistoryGeneration++;
             ClearAnswerHistoryContextCache();
-            _openRouterService.ClearHistory();
-            _claudeService.ClearHistory();
-            _lmStudioService.ClearHistory();
             _autoStreamDebounceTimer.Stop();
             _autoStreamPendingSince = DateTime.MinValue;
             _qaItems.Clear();
             _lastExtractedEntryIndex = 0;
             EnsureQaListBound();
-            AiStatusText.Text = IsClaude ? "Click Extract Questions" : "Select a model and click Extract Questions";
+            AiStatusText.Text = ExtractButton.IsEnabled
+                ? "Click Extract Questions"
+                : "Select a model and click Extract Questions";
             UpdateStatus("AI history cleared");
         }
 
@@ -1504,64 +1319,45 @@ namespace LiveTranscript
             try
             {
                 var modelId = GetAiModelId();
-                var modelName = IsClaude ? "Claude 4.5 Haiku" : _selectedModel?.Name;
                 var transcriptGeneration = _transcriptGeneration;
                 var aiHistoryGeneration = _aiHistoryGeneration;
                 var useNotesMode = IsNotesAnswerMode();
                 var answerModeName = ActiveAnswerModeName(useNotesMode);
-                AiStatusText.Text = IsClaude
-                    ? $"Auto-extracting and generating {answerModeName} ({wordCount} new words)…"
-                    : $"Auto-extracting ({wordCount} new words)…";
+                AiStatusText.Text = $"Auto-extracting and generating {answerModeName} ({wordCount} new words)…";
 
-                if (IsClaude || IsLmStudio || IsOpenRouter)
+                var extractedQuestions = await ExtractQuestionAnswersForCurrentProviderAsync(
+                    apiKey,
+                    modelId,
+                    extractionContext,
+                    BuildKnownQuestionTexts(),
+                    BuildAnswerHistoryContext(AnswerHistoryMaxChars),
+                    useNotesMode);
+
+                if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
+                    return;
+
+                _lastExtractedEntryIndex = entries.Count;
+                _autoStreamPendingSince = DateTime.MinValue;
+
+                if (extractedQuestions.Count > 0)
                 {
-                    var extractedQuestions = IsClaude
-                        ? await _claudeService.ExtractQuestionAnswersAsync(
-                            apiKey, modelId, extractionContext, BuildKnownQuestionTexts(),
-                            _settings.JobDescription, _settings.Resume,
-                            BuildAnswerHistoryContext(AnswerHistoryMaxChars), useNotesMode)
-                        : IsLmStudio
-                            ? await _lmStudioService.ExtractQuestionTextsOnlyAsync(
-                                _settings.LmStudioBaseUrl, apiKey, modelId, extractionContext, BuildKnownQuestionTexts())
-                            : await _openRouterService.ExtractQuestionTextsOnlyAsync(
-                                apiKey, modelId, extractionContext, BuildKnownQuestionTexts());
+                    int startNum = _qaItems.Count;
+                    var newQas = new List<QuestionAnswer>();
+                    AddExtractedQuestions(extractedQuestions, newQas, ref startNum, useNotesMode, true, aiHistoryGeneration);
 
-                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                        return;
-
-                    _lastExtractedEntryIndex = entries.Count;
-                    _autoStreamPendingSince = DateTime.MinValue;
-
-                    if (extractedQuestions.Count > 0)
+                    if (newQas.Count > 0)
                     {
-                        int startNum = _qaItems.Count;
-                        var newQas = new List<QuestionAnswer>();
-                        AddClaudeQuestions(extractedQuestions, newQas, ref startNum, useNotesMode, IsClaude, aiHistoryGeneration);
-
-                        if (newQas.Count > 0)
-                        {
-                            EnsureQaListBound();
-                            if (IsClaude)
-                            {
-                                AiStatusText.Text = $"{newQas.Count} questions found (auto). Generated {answerModeName}.";
-                            }
-                            else
-                            {
-                                AiStatusText.Text = $"{newQas.Count} questions found (auto). Streaming first {answerModeName}...";
-                                _ = StartStreamingAnswersWithPriority(
-                                    newQas, apiKey, modelId, BuildAnswerContextText(),
-                                    aiHistoryGeneration, transcriptGeneration, useNotesMode);
-                            }
-                        }
-                        else
-                        {
-                            AiStatusText.Text = "No new questions detected.";
-                        }
+                        EnsureQaListBound();
+                        AiStatusText.Text = $"{newQas.Count} questions found (auto). Generated {answerModeName}.";
                     }
                     else
                     {
                         AiStatusText.Text = "No new questions detected.";
                     }
+                }
+                else
+                {
+                    AiStatusText.Text = "No new questions detected.";
                 }
             }
             catch (Exception ex)
@@ -1651,73 +1447,12 @@ namespace LiveTranscript
             HudTextZoomText.Text = text;
         }
 
-        private async Task StartStreamingAnswersWithPriority(
-            List<QuestionAnswer> newQas,
-            string apiKey,
-            string modelId,
-            string transcriptContext,
-            int aiHistoryGeneration,
-            int transcriptGeneration,
-            bool useNotesMode)
-        {
-            if (newQas.Count == 0) return;
-            if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration)) return;
-
-            var first = newQas[0];
-            var firstChunkSignal = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
-            var answerTasks = new Dictionary<QuestionAnswer, Task>();
-
-            Task StartAnswerAsync(QuestionAnswer qa, TaskCompletionSource<bool>? firstChunk = null)
-            {
-                if (answerTasks.TryGetValue(qa, out var existingTask))
-                    return existingTask;
-
-                async Task RunAsync()
-                {
-                    if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
-                    {
-                        firstChunk?.TrySetResult(true);
-                        return;
-                    }
-
-                    var parent = ResolveParentForStreaming(qa);
-                    if (parent != null && newQas.Contains(parent))
-                        await StartAnswerAsync(parent);
-
-                    await ProcessStreamingAnswer(
-                        qa, apiKey, modelId, transcriptContext,
-                        aiHistoryGeneration, transcriptGeneration, useNotesMode,
-                        parent, firstChunk);
-                }
-
-                var task = RunAsync();
-                answerTasks[qa] = task;
-                return task;
-            }
-
-            _ = StartAnswerAsync(first, firstChunkSignal);
-
-            if (newQas.Count == 1) return;
-
-            await Task.WhenAny(firstChunkSignal.Task, Task.Delay(DeferredStreamStartMs));
-            await Task.WhenAll(newQas.Select(qa => StartAnswerAsync(qa)));
-        }
-
         private void EnsureQaListBound()
         {
             if (!ReferenceEquals(QaList.ItemsSource, _qaItems))
                 QaList.ItemsSource = _qaItems;
             if (!ReferenceEquals(HudQaList.ItemsSource, _qaItems))
                 HudQaList.ItemsSource = _qaItems;
-        }
-
-        private QuestionAnswer? ResolveParentForStreaming(QuestionAnswer qa)
-        {
-            if (!qa.IsFollowUp)
-                return null;
-
-            return _qaItems.FirstOrDefault(x =>
-                NormalizeQuestionKey(x.Question) == NormalizeQuestionKey(qa.ParentQuestion));
         }
 
         private string BuildExtractionTranscriptText()
@@ -1733,27 +1468,6 @@ namespace LiveTranscript
                 return TrimToLastChars(incremental, ExtractionContextMaxChars);
 
             return BuildRecentTranscriptText(ExtractionContextMaxChars);
-        }
-
-        private string BuildAnswerContextText()
-        {
-            return BuildRecentTranscriptText(AnswerContextMaxChars);
-        }
-
-        private string BuildAnswerHistoryContext(QuestionAnswer currentQa, int maxChars)
-        {
-            if (_cachedAnswerHistoryGeneration != _aiHistoryGeneration)
-                RebuildAnswerHistoryContextCache(maxChars);
-
-            if (_answerHistoryEntries.Count == 0)
-                return string.Empty;
-
-            if (!_answerHistoryEntries.Any(entry => ReferenceEquals(entry.Qa, currentQa)))
-                return _cachedAnswerHistoryContext;
-
-            return BuildAnswerHistoryContextFromEntries(
-                _answerHistoryEntries.Where(entry => !ReferenceEquals(entry.Qa, currentQa)),
-                maxChars);
         }
 
         private string BuildAnswerHistoryContext(int maxChars)
@@ -1835,11 +1549,6 @@ namespace LiveTranscript
         private static string BuildAnswerHistoryBlock(QuestionAnswer qa, string answer)
         {
             return $"{qa.DisplayBadge}: {qa.Question}\nAnswer: {answer.Trim()}";
-        }
-
-        private static string GetActiveResponseText(QuestionAnswer qa, bool useNotesMode)
-        {
-            return useNotesMode ? qa.KeyPoints : qa.ParagraphAnswer;
         }
 
         private static bool IsUsableAnswerText(string? answer)

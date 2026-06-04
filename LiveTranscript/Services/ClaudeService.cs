@@ -3,18 +3,15 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
-using System.Text.RegularExpressions;
 using System.Threading;
 using System.Threading.Tasks;
 using LiveTranscript.Models;
 using Newtonsoft.Json;
-using Newtonsoft.Json.Linq;
 
 namespace LiveTranscript.Services
 {
     /// <summary>
-    /// Handles Anthropic Claude API for chat completions.
-    /// Tracks previously answered questions to avoid duplicates.
+    /// Handles Anthropic Claude API requests for interview Q&A extraction.
     /// </summary>
     public class ClaudeService
     {
@@ -26,86 +23,37 @@ namespace LiveTranscript.Services
 
         private readonly HttpClient _httpClient;
 
-        /// <summary>
-        /// Accumulates Q&A pairs from previous extractions so the LLM
-        /// skips already-answered questions on subsequent calls.
-        /// </summary>
-        public List<string> PreviouslyAnswered { get; } = new();
-
         public ClaudeService()
         {
             _httpClient = new HttpClient();
             _httpClient.DefaultRequestHeaders.Add("anthropic-version", ApiVersion);
         }
 
-        /// <summary>
-        /// Sends the transcript to Claude to extract and answer
-        /// interview questions as the candidate. Skips previously answered questions.
-        /// </summary>
-        public async Task<List<ExtractedQuestion>> ExtractQuestionTextsOnlyAsync(
-            string apiKey, string modelId,
-            string transcript,
-            IEnumerable<string>? knownQuestions = null)
-        {
-            var systemPrompt = AiPromptTemplates.BuildQuestionExtractionSystemPrompt();
-            var userPrompt = AiPromptTemplates.BuildQuestionExtractionUserPrompt(transcript, knownQuestions);
-
-            var request = new ClaudeCompletionRequest
-            {
-                Model = modelId,
-                MaxTokens = 1024,
-                System = systemPrompt,
-                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
-                Messages = new List<ClaudeMessage>
-                {
-                    new() { Role = "user", Content = userPrompt }
-                }
-            };
-
-            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
-            { 
-                NullValueHandling = NullValueHandling.Ignore 
-            });
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            httpRequest.Headers.Add("x-api-key", apiKey);
-
-            var response = await SendClaudeRequestAsync(httpRequest);
-            var responseText = await response.Content.ReadAsStringAsync();
-
-            if (!response.IsSuccessStatusCode)
-                throw new Exception($"Extraction error: {responseText}");
-
-            var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
-            var text = result?.Content?.FirstOrDefault()?.Text ?? "[]";
-            return ParseExtractedQuestions(text);
-        }
-
         public async Task<List<ExtractedQuestion>> ExtractQuestionAnswersAsync(
-            string apiKey, string modelId,
+            string apiKey,
+            string modelId,
             string transcript,
             IEnumerable<string>? knownQuestions,
             string jobDescription,
             string resume,
-            string answerHistory,
+            string? answerHistory,
             bool useJotNotes)
         {
-            var systemPrompt = AiPromptTemplates.BuildQuestionAnswerExtractionSystemPrompt(
-                jobDescription, resume, useJotNotes);
-            var userPrompt = AiPromptTemplates.BuildQuestionAnswerExtractionUserPrompt(
-                transcript, knownQuestions, answerHistory);
-
             var request = new ClaudeCompletionRequest
             {
                 Model = modelId,
                 MaxTokens = 4096,
-                System = systemPrompt,
+                System = AiPromptTemplates.BuildQuestionAnswerExtractionSystemPrompt(
+                    jobDescription, resume, useJotNotes),
                 Thinking = new ClaudeThinkingConfig { Type = "disabled" },
                 Messages = new List<ClaudeMessage>
                 {
-                    new() { Role = "user", Content = userPrompt }
+                    new()
+                    {
+                        Role = "user",
+                        Content = AiPromptTemplates.BuildQuestionAnswerExtractionUserPrompt(
+                            transcript, knownQuestions, answerHistory)
+                    }
                 }
             };
 
@@ -123,204 +71,22 @@ namespace LiveTranscript.Services
             var responseText = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
-                throw new Exception($"Extraction/answer error: {responseText}");
+                throw new Exception($"Claude extraction/answer error ({response.StatusCode}): {responseText}");
 
             var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
             var text = result?.Content?.FirstOrDefault()?.Text ?? "[]";
-            return ParseExtractedQuestions(text);
+
+            return ExtractedQuestionParser.Parse(text);
         }
 
-        public async IAsyncEnumerable<string> StreamAnswerAsync(
-            string apiKey, string modelId,
-            string question, string transcript, string jobDescription, string resume,
-            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
-        {
-            var systemPrompt = AiPromptTemplates.BuildAnswerSystemPrompt(jobDescription, resume);
-            var userPrompt = AiPromptTemplates.BuildAnswerUserPrompt(
-                question, transcript, parentQuestion, parentAnswer, answerHistory);
-
-            var request = new ClaudeCompletionRequest
-            {
-                Model = modelId,
-                MaxTokens = 2048,
-                System = systemPrompt,
-                Stream = true,
-                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
-                Messages = new List<ClaudeMessage>
-                {
-                    new() { Role = "user", Content = userPrompt }
-                }
-            };
-
-            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings 
-            { 
-                NullValueHandling = NullValueHandling.Ignore 
-            });
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            httpRequest.Headers.Add("x-api-key", apiKey);
-
-            using var response = await SendClaudeRequestAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                yield return $"[Error: {error}]";
-                yield break;
-            }
-
-            using var stream = await response.Content.ReadAsStreamAsync();
-            var buffer = new byte[8192];
-            var leftover = string.Empty;
-
-            while (true)
-            {
-                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0) break;
-
-                var text = leftover + Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                var lines = text.Split('\n');
-                
-                // Keep the last partial line
-                leftover = lines[^1];
-
-                // Process all complete lines
-                for (int i = 0; i < lines.Length - 1; i++)
-                {
-                    var line = lines[i].Trim();
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.StartsWith("data: "))
-                    {
-                        var data = line.Substring(6).Trim();
-                        if (data == "[DONE]") yield break;
-
-                        string? textToYield = null;
-                        try
-                        {
-                            var delta = JsonConvert.DeserializeObject<JObject>(data);
-                            var type = delta?["type"]?.ToString();
-
-                            if (type == "content_block_delta")
-                            {
-                                var deltaNode = delta?["delta"];
-                                var deltaType = deltaNode?["type"]?.ToString();
-                                
-                                if (deltaType == "text_delta")
-                                {
-                                    textToYield = deltaNode?["text"]?.ToString();
-                                }
-                            }
-                        }
-                        catch { }
-
-                        if (!string.IsNullOrEmpty(textToYield))
-                            yield return textToYield;
-                    }
-                }
-            }
-        }
-
-        public async IAsyncEnumerable<string> StreamJotNotesAsync(
-            string apiKey, string modelId,
-            string question, string paragraphAnswer, string transcript, string jobDescription, string resume,
-            string? parentQuestion = null, string? parentAnswer = null, string? answerHistory = null)
-        {
-            var systemPrompt = AiPromptTemplates.BuildJotNotesSystemPrompt(jobDescription, resume);
-            var userPrompt = AiPromptTemplates.BuildJotNotesUserPrompt(
-                question, paragraphAnswer, transcript, parentQuestion, parentAnswer, answerHistory);
-
-            var request = new ClaudeCompletionRequest
-            {
-                Model = modelId,
-                MaxTokens = 1024,
-                System = systemPrompt,
-                Stream = true,
-                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
-                Messages = new List<ClaudeMessage>
-                {
-                    new() { Role = "user", Content = userPrompt }
-                }
-            };
-
-            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Ignore
-            });
-            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
-            {
-                Content = new StringContent(json, Encoding.UTF8, "application/json")
-            };
-            httpRequest.Headers.Add("x-api-key", apiKey);
-
-            using var response = await SendClaudeRequestAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
-            if (!response.IsSuccessStatusCode)
-            {
-                var error = await response.Content.ReadAsStringAsync();
-                yield return $"[Error: {error}]";
-                yield break;
-            }
-
-            using var stream = await response.Content.ReadAsStreamAsync();
-            var buffer = new byte[8192];
-            var leftover = string.Empty;
-
-            while (true)
-            {
-                var bytesRead = await stream.ReadAsync(buffer, 0, buffer.Length);
-                if (bytesRead == 0) break;
-
-                var text = leftover + Encoding.UTF8.GetString(buffer, 0, bytesRead);
-                var lines = text.Split('\n');
-                leftover = lines[^1];
-
-                for (int i = 0; i < lines.Length - 1; i++)
-                {
-                    var line = lines[i].Trim();
-                    if (string.IsNullOrWhiteSpace(line)) continue;
-                    if (line.StartsWith("data: "))
-                    {
-                        var data = line.Substring(6).Trim();
-                        if (data == "[DONE]") yield break;
-
-                        string? textToYield = null;
-                        try
-                        {
-                            var delta = JsonConvert.DeserializeObject<JObject>(data);
-                            var type = delta?["type"]?.ToString();
-
-                            if (type == "content_block_delta")
-                            {
-                                var deltaNode = delta?["delta"];
-                                var deltaType = deltaNode?["type"]?.ToString();
-
-                                if (deltaType == "text_delta")
-                                {
-                                    textToYield = deltaNode?["text"]?.ToString();
-                                }
-                            }
-                        }
-                        catch { }
-
-                        if (!string.IsNullOrEmpty(textToYield))
-                            yield return textToYield;
-                    }
-                }
-            }
-        }
-
-        public void ClearHistory() => PreviouslyAnswered.Clear();
-
-        private async Task<HttpResponseMessage> SendClaudeRequestAsync(
-            HttpRequestMessage request,
-            HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
+        private async Task<HttpResponseMessage> SendClaudeRequestAsync(HttpRequestMessage request)
         {
             Task<HttpResponseMessage> sendTask;
             await RequestRateGate.WaitAsync();
             try
             {
                 await WaitForClaudeRequestSlotAsync();
-                sendTask = _httpClient.SendAsync(request, completionOption);
+                sendTask = _httpClient.SendAsync(request);
                 _nextRequestAtUtc = DateTimeOffset.UtcNow + MinimumRequestInterval;
             }
             finally
@@ -337,101 +103,8 @@ namespace LiveTranscript.Services
             if (now < _nextRequestAtUtc)
                 await Task.Delay(_nextRequestAtUtc - now);
         }
-
-        private static List<ExtractedQuestion> ParseExtractedQuestions(string text)
-        {
-            try
-            {
-                return MapExtractedQuestionDtos(
-                    JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(text) ?? new List<ExtractedQuestionDto>());
-            }
-            catch
-            {
-                // Fallback: search for array-like structure
-                var match = Regex.Match(text, @"\[.*\]", RegexOptions.Singleline);
-                if (match.Success)
-                {
-                    try
-                    {
-                        return MapExtractedQuestionDtos(
-                            JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(match.Value) ?? new List<ExtractedQuestionDto>());
-                    }
-                    catch
-                    {
-                        // Continue to old array fallback below.
-                    }
-                }
-
-                // Last fallback for old array format
-                try
-                {
-                    var oldParsed = JsonConvert.DeserializeObject<List<string>>(text) ?? new List<string>();
-                    return oldParsed
-                        .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => new ExtractedQuestion { Question = x.Trim() })
-                        .ToList();
-                }
-                catch
-                {
-                    return new List<ExtractedQuestion>();
-                }
-            }
-        }
-
-        private static List<ExtractedQuestion> MapExtractedQuestionDtos(IEnumerable<ExtractedQuestionDto> parsed)
-        {
-            return parsed
-                .Where(x => !string.IsNullOrWhiteSpace(x.Q))
-                .Select(x => new ExtractedQuestion
-                {
-                    Question = x.Q!.Trim(),
-                    IsFollowUp = x.F ?? false,
-                    ParentQuestion = (x.P ?? string.Empty).Trim(),
-                    ParagraphAnswer = (x.A ?? string.Empty).Trim(),
-                    KeyPoints = ReadJotNotes(x.K)
-                })
-                .ToList();
-        }
-
-        private static string ReadJotNotes(JToken? token)
-        {
-            if (token == null || token.Type == JTokenType.Null)
-                return string.Empty;
-
-            if (token.Type == JTokenType.Array)
-            {
-                return string.Join("\n", token
-                    .Values<string>()
-                    .Select(x => (x ?? string.Empty).Trim())
-                    .Where(x => !string.IsNullOrWhiteSpace(x))
-                    .Select(x => x.StartsWith("-", StringComparison.Ordinal) ? x : $"- {x}"));
-            }
-
-            return token.ToString().Trim();
-        }
     }
 
-    internal class ExtractedQuestionDto
-    {
-        [JsonProperty("q")]
-        public string? Q { get; set; }
-
-        [JsonProperty("f")]
-        public bool? F { get; set; }
-
-        [JsonProperty("p")]
-        public string? P { get; set; }
-
-        [JsonProperty("a")]
-        public string? A { get; set; }
-
-        [JsonProperty("k")]
-        public JToken? K { get; set; }
-    }
-
-    /// <summary>
-    /// Claude API request model.
-    /// </summary>
     public class ClaudeCompletionRequest
     {
         [JsonProperty("model")]
@@ -442,9 +115,6 @@ namespace LiveTranscript.Services
 
         [JsonProperty("system")]
         public string System { get; set; } = string.Empty;
-
-        [JsonProperty("stream")]
-        public bool Stream { get; set; }
 
         [JsonProperty("thinking")]
         public ClaudeThinkingConfig? Thinking { get; set; }
@@ -457,9 +127,6 @@ namespace LiveTranscript.Services
     {
         [JsonProperty("type")]
         public string Type { get; set; } = "disabled";
-
-        [JsonProperty("budget_tokens")]
-        public int? BudgetTokens { get; set; }
     }
 
     public class ClaudeMessage
@@ -471,54 +138,15 @@ namespace LiveTranscript.Services
         public string Content { get; set; } = string.Empty;
     }
 
-    /// <summary>
-    /// Claude API response model.
-    /// </summary>
     public class ClaudeCompletionResponse
     {
-        [JsonProperty("id")]
-        public string Id { get; set; } = string.Empty;
-
-        [JsonProperty("type")]
-        public string Type { get; set; } = string.Empty;
-
-        [JsonProperty("role")]
-        public string Role { get; set; } = string.Empty;
-
         [JsonProperty("content")]
         public List<ClaudeContentBlock>? Content { get; set; }
-
-        [JsonProperty("model")]
-        public string Model { get; set; } = string.Empty;
-
-        [JsonProperty("stop_reason")]
-        public string StopReason { get; set; } = string.Empty;
-
-        [JsonProperty("stop_sequence")]
-        public string? StopSequence { get; set; }
-
-        [JsonProperty("usage")]
-        public ClaudeUsage? Usage { get; set; }
     }
 
     public class ClaudeContentBlock
     {
-        [JsonProperty("type")]
-        public string Type { get; set; } = string.Empty;
-
         [JsonProperty("text")]
         public string? Text { get; set; }
-
-        [JsonProperty("thinking")]
-        public string? Thinking { get; set; }
-    }
-
-    public class ClaudeUsage
-    {
-        [JsonProperty("input_tokens")]
-        public int InputTokens { get; set; }
-
-        [JsonProperty("output_tokens")]
-        public int OutputTokens { get; set; }
     }
 }

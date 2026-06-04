@@ -98,6 +98,9 @@ namespace LiveTranscript.Models
         [JsonProperty("model")]
         public string Model { get; set; } = string.Empty;
 
+        [JsonProperty("max_tokens")]
+        public int? MaxTokens { get; set; }
+
         [JsonProperty("messages")]
         public List<ChatMessage> Messages { get; set; } = new();
     }
