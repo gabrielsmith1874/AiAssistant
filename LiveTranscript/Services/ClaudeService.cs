@@ -4,6 +4,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.RegularExpressions;
+using System.Threading;
 using System.Threading.Tasks;
 using LiveTranscript.Models;
 using Newtonsoft.Json;
@@ -19,6 +20,9 @@ namespace LiveTranscript.Services
     {
         private const string CompletionsUrl = "https://api.anthropic.com/v1/messages";
         private const string ApiVersion = "2023-06-01";
+        private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(1250);
+        private static readonly SemaphoreSlim RequestRateGate = new(1, 1);
+        private static DateTimeOffset _nextRequestAtUtc = DateTimeOffset.MinValue;
 
         private readonly HttpClient _httpClient;
 
@@ -68,7 +72,7 @@ namespace LiveTranscript.Services
             };
             httpRequest.Headers.Add("x-api-key", apiKey);
 
-            var response = await _httpClient.SendAsync(httpRequest);
+            var response = await SendClaudeRequestAsync(httpRequest);
             var responseText = await response.Content.ReadAsStringAsync();
 
             if (!response.IsSuccessStatusCode)
@@ -76,52 +80,54 @@ namespace LiveTranscript.Services
 
             var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
             var text = result?.Content?.FirstOrDefault()?.Text ?? "[]";
-             
-            try 
-            {
-                var parsed = JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(text) ?? new List<ExtractedQuestionDto>();
-                return parsed
-                    .Where(x => !string.IsNullOrWhiteSpace(x.Q))
-                    .Select(x => new ExtractedQuestion
-                    {
-                        Question = x.Q!.Trim(),
-                        IsFollowUp = x.F ?? false,
-                        ParentQuestion = (x.P ?? string.Empty).Trim()
-                    })
-                    .ToList();
-            }
-            catch 
-            {
-                // Fallback: search for array-like structure
-                var match = Regex.Match(text, @"\[.*\]", RegexOptions.Singleline);
-                if (match.Success)
-                {
-                    var parsed = JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(match.Value) ?? new List<ExtractedQuestionDto>();
-                    return parsed
-                        .Where(x => !string.IsNullOrWhiteSpace(x.Q))
-                        .Select(x => new ExtractedQuestion
-                        {
-                            Question = x.Q!.Trim(),
-                            IsFollowUp = x.F ?? false,
-                            ParentQuestion = (x.P ?? string.Empty).Trim()
-                        })
-                        .ToList();
-                }
+            return ParseExtractedQuestions(text);
+        }
 
-                // Last fallback for old array format
-                try
+        public async Task<List<ExtractedQuestion>> ExtractQuestionAnswersAsync(
+            string apiKey, string modelId,
+            string transcript,
+            IEnumerable<string>? knownQuestions,
+            string jobDescription,
+            string resume,
+            string answerHistory,
+            bool useJotNotes)
+        {
+            var systemPrompt = AiPromptTemplates.BuildQuestionAnswerExtractionSystemPrompt(
+                jobDescription, resume, useJotNotes);
+            var userPrompt = AiPromptTemplates.BuildQuestionAnswerExtractionUserPrompt(
+                transcript, knownQuestions, answerHistory);
+
+            var request = new ClaudeCompletionRequest
+            {
+                Model = modelId,
+                MaxTokens = 4096,
+                System = systemPrompt,
+                Thinking = new ClaudeThinkingConfig { Type = "disabled" },
+                Messages = new List<ClaudeMessage>
                 {
-                    var oldParsed = JsonConvert.DeserializeObject<List<string>>(text) ?? new List<string>();
-                    return oldParsed
-                        .Where(x => !string.IsNullOrWhiteSpace(x))
-                        .Select(x => new ExtractedQuestion { Question = x.Trim() })
-                        .ToList();
+                    new() { Role = "user", Content = userPrompt }
                 }
-                catch
-                {
-                    return new List<ExtractedQuestion>();
-                }
-            }
+            };
+
+            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings
+            {
+                NullValueHandling = NullValueHandling.Ignore
+            });
+            var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
+            {
+                Content = new StringContent(json, Encoding.UTF8, "application/json")
+            };
+            httpRequest.Headers.Add("x-api-key", apiKey);
+
+            var response = await SendClaudeRequestAsync(httpRequest);
+            var responseText = await response.Content.ReadAsStringAsync();
+
+            if (!response.IsSuccessStatusCode)
+                throw new Exception($"Extraction/answer error: {responseText}");
+
+            var result = JsonConvert.DeserializeObject<ClaudeCompletionResponse>(responseText);
+            var text = result?.Content?.FirstOrDefault()?.Text ?? "[]";
+            return ParseExtractedQuestions(text);
         }
 
         public async IAsyncEnumerable<string> StreamAnswerAsync(
@@ -156,7 +162,7 @@ namespace LiveTranscript.Services
             };
             httpRequest.Headers.Add("x-api-key", apiKey);
 
-            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await SendClaudeRequestAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
@@ -247,7 +253,7 @@ namespace LiveTranscript.Services
             };
             httpRequest.Headers.Add("x-api-key", apiKey);
 
-            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
+            using var response = await SendClaudeRequestAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead);
             if (!response.IsSuccessStatusCode)
             {
                 var error = await response.Content.ReadAsStringAsync();
@@ -304,6 +310,105 @@ namespace LiveTranscript.Services
         }
 
         public void ClearHistory() => PreviouslyAnswered.Clear();
+
+        private async Task<HttpResponseMessage> SendClaudeRequestAsync(
+            HttpRequestMessage request,
+            HttpCompletionOption completionOption = HttpCompletionOption.ResponseContentRead)
+        {
+            Task<HttpResponseMessage> sendTask;
+            await RequestRateGate.WaitAsync();
+            try
+            {
+                await WaitForClaudeRequestSlotAsync();
+                sendTask = _httpClient.SendAsync(request, completionOption);
+                _nextRequestAtUtc = DateTimeOffset.UtcNow + MinimumRequestInterval;
+            }
+            finally
+            {
+                RequestRateGate.Release();
+            }
+
+            return await sendTask;
+        }
+
+        private static async Task WaitForClaudeRequestSlotAsync()
+        {
+            var now = DateTimeOffset.UtcNow;
+            if (now < _nextRequestAtUtc)
+                await Task.Delay(_nextRequestAtUtc - now);
+        }
+
+        private static List<ExtractedQuestion> ParseExtractedQuestions(string text)
+        {
+            try
+            {
+                return MapExtractedQuestionDtos(
+                    JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(text) ?? new List<ExtractedQuestionDto>());
+            }
+            catch
+            {
+                // Fallback: search for array-like structure
+                var match = Regex.Match(text, @"\[.*\]", RegexOptions.Singleline);
+                if (match.Success)
+                {
+                    try
+                    {
+                        return MapExtractedQuestionDtos(
+                            JsonConvert.DeserializeObject<List<ExtractedQuestionDto>>(match.Value) ?? new List<ExtractedQuestionDto>());
+                    }
+                    catch
+                    {
+                        // Continue to old array fallback below.
+                    }
+                }
+
+                // Last fallback for old array format
+                try
+                {
+                    var oldParsed = JsonConvert.DeserializeObject<List<string>>(text) ?? new List<string>();
+                    return oldParsed
+                        .Where(x => !string.IsNullOrWhiteSpace(x))
+                        .Select(x => new ExtractedQuestion { Question = x.Trim() })
+                        .ToList();
+                }
+                catch
+                {
+                    return new List<ExtractedQuestion>();
+                }
+            }
+        }
+
+        private static List<ExtractedQuestion> MapExtractedQuestionDtos(IEnumerable<ExtractedQuestionDto> parsed)
+        {
+            return parsed
+                .Where(x => !string.IsNullOrWhiteSpace(x.Q))
+                .Select(x => new ExtractedQuestion
+                {
+                    Question = x.Q!.Trim(),
+                    IsFollowUp = x.F ?? false,
+                    ParentQuestion = (x.P ?? string.Empty).Trim(),
+                    ParagraphAnswer = (x.A ?? string.Empty).Trim(),
+                    KeyPoints = ReadJotNotes(x.K)
+                })
+                .ToList();
+        }
+
+        private static string ReadJotNotes(JToken? token)
+        {
+            if (token == null || token.Type == JTokenType.Null)
+                return string.Empty;
+
+            if (token.Type == JTokenType.Array)
+            {
+                return string.Join("\n", token
+                    .Values<string>()
+                    .Select(x => (x ?? string.Empty).Trim())
+                    .Where(x => !string.IsNullOrWhiteSpace(x))
+                    .Select(x => x.StartsWith("-", StringComparison.Ordinal) ? x : $"- {x}"));
+            }
+
+            return token.ToString().Trim();
+        }
     }
 
     internal class ExtractedQuestionDto
@@ -316,6 +421,12 @@ namespace LiveTranscript.Services
 
         [JsonProperty("p")]
         public string? P { get; set; }
+
+        [JsonProperty("a")]
+        public string? A { get; set; }
+
+        [JsonProperty("k")]
+        public JToken? K { get; set; }
     }
 
     /// <summary>
