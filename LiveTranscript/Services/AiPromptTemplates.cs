@@ -29,6 +29,7 @@ namespace LiveTranscript.Services
             sb.AppendLine("- Ground answers in the provided resume and job description. Do not invent unrelated experiences.");
             sb.AppendLine("- Use prior answer history for continuity and avoid repeating the same example unless the question requires it.");
             sb.AppendLine("- Use common, everyday words. Avoid uncommon, academic, or overly formal words when a simple word works.");
+            sb.AppendLine("- Do not chain several large, complex, or uncommon words together. Use technical words only when they are necessary and commonly used for the topic.");
             sb.AppendLine("- Include light natural filler, such as \"I mean,\" or \"you know,\" where it sounds like normal speech.");
             sb.AppendLine("- Put two spaces after each sentence-ending period.");
 
