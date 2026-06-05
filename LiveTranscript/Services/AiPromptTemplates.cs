@@ -28,6 +28,9 @@ namespace LiveTranscript.Services
             sb.AppendLine("- Answer directly as the candidate. Do not say you are an AI.");
             sb.AppendLine("- Ground answers in the provided resume and job description. Do not invent unrelated experiences.");
             sb.AppendLine("- Use prior answer history for continuity and avoid repeating the same example unless the question requires it.");
+            sb.AppendLine("- Use common, everyday words. Avoid uncommon, academic, or overly formal words when a simple word works.");
+            sb.AppendLine("- Include light natural filler, such as \"I mean,\" or \"you know,\" where it sounds like normal speech.");
+            sb.AppendLine("- Put two spaces after each sentence-ending period.");
 
             if (useJotNotes)
             {

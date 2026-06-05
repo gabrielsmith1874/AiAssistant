@@ -132,10 +132,18 @@ namespace LiveTranscript.Services
                     Question = x.Q!.Trim(),
                     IsFollowUp = x.F ?? false,
                     ParentQuestion = (x.P ?? string.Empty).Trim(),
-                    ParagraphAnswer = (x.A ?? string.Empty).Trim(),
-                    KeyPoints = ReadJotNotes(x.K)
+                    ParagraphAnswer = NormalizePeriodSpacing((x.A ?? string.Empty).Trim()),
+                    KeyPoints = NormalizePeriodSpacing(ReadJotNotes(x.K))
                 })
                 .ToList();
+        }
+
+        private static string NormalizePeriodSpacing(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            return Regex.Replace(text.Trim(), @"\.([ \t]+)(?![ \t])", ".  ");
         }
 
         private static string ReadJotNotes(JToken? token)
