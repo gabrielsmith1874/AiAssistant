@@ -48,6 +48,15 @@ namespace LiveTranscript.Models
         public double WindowLeft { get; set; } = -1;
         public double WindowWidth { get; set; } = 950;
         public double WindowHeight { get; set; } = 600;
+        public double TextZoomFactor { get; set; } = 1.0;
+        public double HudTranscriptLeft { get; set; } = -1;
+        public double HudTranscriptTop { get; set; } = -1;
+        public double HudTranscriptWidth { get; set; } = 420;
+        public double HudTranscriptHeight { get; set; } = 360;
+        public double HudAnswersLeft { get; set; } = -1;
+        public double HudAnswersTop { get; set; } = -1;
+        public double HudAnswersWidth { get; set; } = 420;
+        public double HudAnswersHeight { get; set; } = 360;
 
         [JsonIgnore]
         private static AppSettings? _instance;

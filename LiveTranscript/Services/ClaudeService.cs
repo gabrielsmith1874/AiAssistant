@@ -19,6 +19,10 @@ namespace LiveTranscript.Services
         private const string ApiVersion = "2023-06-01";
         private static readonly TimeSpan MinimumRequestInterval = TimeSpan.FromMilliseconds(1250);
         private static readonly SemaphoreSlim RequestRateGate = new(1, 1);
+        private static readonly JsonSerializerSettings JsonSettings = new()
+        {
+            NullValueHandling = NullValueHandling.Ignore
+        };
         private static DateTimeOffset _nextRequestAtUtc = DateTimeOffset.MinValue;
 
         private readonly HttpClient _httpClient;
@@ -57,10 +61,7 @@ namespace LiveTranscript.Services
                 }
             };
 
-            var json = JsonConvert.SerializeObject(request, new JsonSerializerSettings
-            {
-                NullValueHandling = NullValueHandling.Ignore
-            });
+            var json = JsonConvert.SerializeObject(request, JsonSettings);
             var httpRequest = new HttpRequestMessage(HttpMethod.Post, CompletionsUrl)
             {
                 Content = new StringContent(json, Encoding.UTF8, "application/json")

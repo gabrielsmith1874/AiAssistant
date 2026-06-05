@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -48,6 +49,7 @@ namespace LiveTranscript
         private bool _autoExtractEnabled;
         private int _lastExtractedEntryIndex;  // tracks how far we've extracted
         private bool _isExtracting;            // prevents overlapping calls
+        private bool _autoExtractQueuedDuringRun;
         private int _transcriptGeneration;
         private int _aiHistoryGeneration;
         private readonly List<AnswerHistoryEntry> _answerHistoryEntries = new();
@@ -241,6 +243,7 @@ namespace LiveTranscript
             }
             if (_settings.WindowWidth > 100) Width = _settings.WindowWidth;
             if (_settings.WindowHeight > 100) Height = _settings.WindowHeight;
+            TextZoomFactor = Math.Round(Math.Clamp(_settings.TextZoomFactor, TextZoomMin, TextZoomMax), 2);
 
             SizeChanged += (s, e) =>
             {
@@ -256,21 +259,7 @@ namespace LiveTranscript
             Closing += (s, e) =>
             {
                 UnregisterGlobalHotkey();
-                if (_isHudMode && !_windowedBounds.IsEmpty)
-                {
-                    _settings.WindowTop = _windowedBounds.Top;
-                    _settings.WindowLeft = _windowedBounds.Left;
-                    _settings.WindowWidth = _windowedBounds.Width;
-                    _settings.WindowHeight = _windowedBounds.Height;
-                }
-                else
-                {
-                    _settings.WindowTop = Top;
-                    _settings.WindowLeft = Left;
-                    _settings.WindowWidth = Width;
-                    _settings.WindowHeight = Height;
-                }
-                _settings.Save();
+                SaveUiStateSettings();
             };
         }
 
@@ -944,6 +933,7 @@ namespace LiveTranscript
                 _activeHudHeader.ReleaseMouseCapture();
             _activeHudModule = null;
             _activeHudHeader = null;
+            SaveUiStateSettings();
             e.Handled = true;
         }
 
@@ -990,6 +980,7 @@ namespace LiveTranscript
                 _activeHudResizeHandle.ReleaseMouseCapture();
             _activeHudResizeModule = null;
             _activeHudResizeHandle = null;
+            SaveUiStateSettings();
             e.Handled = true;
         }
 
@@ -1008,17 +999,64 @@ namespace LiveTranscript
             var moduleWidth = Math.Min(420, Math.Max(280, (canvasWidth - (sidePad * 2) - gap) / 2));
             var moduleHeight = Math.Min(360, Math.Max(220, canvasHeight * 0.45));
 
-            HudTranscriptModule.Width = moduleWidth;
-            HudAnswersModule.Width = moduleWidth;
-            HudTranscriptModule.Height = moduleHeight;
-            HudAnswersModule.Height = moduleHeight;
+            var restoredTranscript = TryRestoreHudModule(
+                HudTranscriptModule,
+                _settings.HudTranscriptLeft,
+                _settings.HudTranscriptTop,
+                _settings.HudTranscriptWidth,
+                _settings.HudTranscriptHeight,
+                canvasWidth,
+                canvasHeight);
+            var restoredAnswers = TryRestoreHudModule(
+                HudAnswersModule,
+                _settings.HudAnswersLeft,
+                _settings.HudAnswersTop,
+                _settings.HudAnswersWidth,
+                _settings.HudAnswersHeight,
+                canvasWidth,
+                canvasHeight);
 
-            Canvas.SetLeft(HudTranscriptModule, sidePad);
-            Canvas.SetTop(HudTranscriptModule, 12);
-            Canvas.SetLeft(HudAnswersModule, sidePad + moduleWidth + gap);
-            Canvas.SetTop(HudAnswersModule, 12);
+            if (!restoredTranscript)
+            {
+                HudTranscriptModule.Width = moduleWidth;
+                HudTranscriptModule.Height = moduleHeight;
+                Canvas.SetLeft(HudTranscriptModule, sidePad);
+                Canvas.SetTop(HudTranscriptModule, 12);
+            }
+
+            if (!restoredAnswers)
+            {
+                HudAnswersModule.Width = moduleWidth;
+                HudAnswersModule.Height = moduleHeight;
+                Canvas.SetLeft(HudAnswersModule, sidePad + moduleWidth + gap);
+                Canvas.SetTop(HudAnswersModule, 12);
+            }
 
             _hudModulesInitialized = true;
+        }
+
+        private static bool TryRestoreHudModule(
+            Border module,
+            double left,
+            double top,
+            double width,
+            double height,
+            double canvasWidth,
+            double canvasHeight)
+        {
+            if (left < 0 || top < 0 || width <= 0 || height <= 0)
+                return false;
+
+            const double minWidth = 260;
+            const double minHeight = 180;
+            var moduleWidth = Math.Max(minWidth, Math.Min(width, Math.Max(minWidth, canvasWidth)));
+            var moduleHeight = Math.Max(minHeight, Math.Min(height, Math.Max(minHeight, canvasHeight)));
+
+            module.Width = Math.Min(moduleWidth, Math.Max(minWidth, canvasWidth));
+            module.Height = Math.Min(moduleHeight, Math.Max(minHeight, canvasHeight));
+            Canvas.SetLeft(module, Math.Max(0, Math.Min(Math.Max(0, canvasWidth - module.Width), left)));
+            Canvas.SetTop(module, Math.Max(0, Math.Min(Math.Max(0, canvasHeight - module.Height), top)));
+            return true;
         }
 
         private void EnsureHudModulesInBounds()
@@ -1048,11 +1086,68 @@ namespace LiveTranscript
             if (double.IsNaN(left)) left = 0;
             if (double.IsNaN(top)) top = 0;
 
-            var maxLeft = Math.Max(0, canvasWidth - module.ActualWidth);
-            var maxTop = Math.Max(0, canvasHeight - module.ActualHeight);
+            var moduleWidth = module.ActualWidth > 0 ? module.ActualWidth : module.Width;
+            var moduleHeight = module.ActualHeight > 0 ? module.ActualHeight : module.Height;
+            var maxLeft = Math.Max(0, canvasWidth - moduleWidth);
+            var maxTop = Math.Max(0, canvasHeight - moduleHeight);
             Canvas.SetLeft(module, Math.Max(0, Math.Min(maxLeft, left)));
             Canvas.SetTop(module, Math.Max(0, Math.Min(maxTop, top)));
         }
+
+        private void SaveUiStateSettings()
+        {
+            if (_settings == null)
+                return;
+
+            if (_isHudMode && !_windowedBounds.IsEmpty)
+            {
+                _settings.WindowTop = _windowedBounds.Top;
+                _settings.WindowLeft = _windowedBounds.Left;
+                _settings.WindowWidth = _windowedBounds.Width;
+                _settings.WindowHeight = _windowedBounds.Height;
+            }
+            else
+            {
+                _settings.WindowTop = Top;
+                _settings.WindowLeft = Left;
+                _settings.WindowWidth = Width;
+                _settings.WindowHeight = Height;
+            }
+
+            _settings.TextZoomFactor = TextZoomFactor;
+            SaveHudModuleSettings();
+            _settings.Save();
+        }
+
+        private void SaveHudModuleSettings()
+        {
+            _settings.HudTranscriptLeft = ReadCanvasLeft(HudTranscriptModule);
+            _settings.HudTranscriptTop = ReadCanvasTop(HudTranscriptModule);
+            _settings.HudTranscriptWidth = ReadElementWidth(HudTranscriptModule);
+            _settings.HudTranscriptHeight = ReadElementHeight(HudTranscriptModule);
+            _settings.HudAnswersLeft = ReadCanvasLeft(HudAnswersModule);
+            _settings.HudAnswersTop = ReadCanvasTop(HudAnswersModule);
+            _settings.HudAnswersWidth = ReadElementWidth(HudAnswersModule);
+            _settings.HudAnswersHeight = ReadElementHeight(HudAnswersModule);
+        }
+
+        private static double ReadCanvasLeft(FrameworkElement element)
+        {
+            var left = Canvas.GetLeft(element);
+            return double.IsNaN(left) ? -1 : left;
+        }
+
+        private static double ReadCanvasTop(FrameworkElement element)
+        {
+            var top = Canvas.GetTop(element);
+            return double.IsNaN(top) ? -1 : top;
+        }
+
+        private static double ReadElementWidth(FrameworkElement element) =>
+            element.ActualWidth > 0 ? element.ActualWidth : element.Width;
+
+        private static double ReadElementHeight(FrameworkElement element) =>
+            element.ActualHeight > 0 ? element.ActualHeight : element.Height;
 
         private static T? FindAncestor<T>(DependencyObject? current) where T : DependencyObject
         {
@@ -1244,8 +1339,9 @@ namespace LiveTranscript
                     ?? new SolidColorBrush(Color.FromRgb(0, 210, 130));
                 _lastExtractedEntryIndex = _transcriptManager.Entries.Count;
                 _autoStreamPendingSince = DateTime.MinValue;
+                _autoExtractQueuedDuringRun = false;
                 _autoStreamDebounceTimer.Stop();
-                UpdateStatus($"Auto-stream ON — waits for context-safe boundary ({MinNewWords}+ words)");
+                UpdateStatus("Auto-stream ON — question-safe extraction enabled");
             }
             else
             {
@@ -1254,31 +1350,52 @@ namespace LiveTranscript
                     ?? new SolidColorBrush(Colors.Gray);
                 _autoStreamDebounceTimer.Stop();
                 _autoStreamPendingSince = DateTime.MinValue;
+                _autoExtractQueuedDuringRun = false;
                 UpdateStatus("Auto-stream OFF");
             }
         }
 
         private void OnTranscriptChanged()
         {
-            if (!_autoExtractEnabled || _isExtracting) return;
+            if (!_autoExtractEnabled) return;
             var newEntries = GetNewFinalEntriesSinceLastExtraction();
-            var newWordCount = CountWords(string.Join(" ", newEntries.Select(e => e.Text)));
-            if (newWordCount < MinNewWords) return;
+            if (newEntries.Count == 0) return;
+
+            if (_isExtracting)
+            {
+                _autoExtractQueuedDuringRun = true;
+                return;
+            }
+
+            var newText = string.Join(" ", newEntries.Select(e => e.Text));
+            var hasQuestionMark = ContainsQuestionMark(newText);
 
             if (_autoStreamPendingSince == DateTime.MinValue)
                 _autoStreamPendingSince = DateTime.UtcNow;
 
             _autoStreamDebounceTimer.Stop();
+            if (hasQuestionMark)
+            {
+                _ = RunAutoExtractAsync();
+                return;
+            }
+
             _autoStreamDebounceTimer.Start();
         }
 
         /// <summary>
         /// Builds only the NEW transcript since last extraction and sends it.
-        /// Only fires if there are enough new words to be worth an API call.
+        /// Favors extracting too often over missing a short interview prompt.
         /// </summary>
         private async Task RunAutoExtractAsync()
         {
-            if (_isExtracting || (!IsClaude && _selectedModel == null)) return;
+            if (_isExtracting)
+            {
+                _autoExtractQueuedDuringRun = true;
+                return;
+            }
+
+            if (!IsClaude && _selectedModel == null) return;
 
             var apiKey = GetAiApiKey();
             if (!IsLmStudio && string.IsNullOrEmpty(apiKey)) return;
@@ -1287,20 +1404,30 @@ namespace LiveTranscript
             var entries = _transcriptManager.Entries;
             var newEntries = GetNewFinalEntriesSinceLastExtraction();
             if (newEntries.Count == 0) return;
+            var extractionEndEntryIndex = entries.Count;
 
             var newText = string.Join("\n",
                 newEntries.Select(e => $"[{e.Speaker}] {e.Text}"));
 
             // Check minimum word threshold
             int wordCount = CountWords(newText);
-            if (wordCount < MinNewWords) return;
-
+            var hasQuestionMark = ContainsQuestionMark(newText);
             var lastEntryText = newEntries[^1].Text?.Trim() ?? string.Empty;
             var waitedMs = _autoStreamPendingSince == DateTime.MinValue
                 ? 0
                 : (DateTime.UtcNow - _autoStreamPendingSince).TotalMilliseconds;
             var canForceBoundary = waitedMs >= AutoStreamMaxWaitMs;
-            if (!LooksLikeBoundarySafe(lastEntryText) && !canForceBoundary)
+            var looksLikeInterviewPrompt = LooksLikeInterviewPrompt(newText);
+
+            if (wordCount < MinNewWords && !hasQuestionMark && !looksLikeInterviewPrompt && !canForceBoundary)
+            {
+                AiStatusText.Text = "Auto-stream watching for a question…";
+                _autoStreamDebounceTimer.Stop();
+                _autoStreamDebounceTimer.Start();
+                return;
+            }
+
+            if (!hasQuestionMark && !LooksLikeBoundarySafe(lastEntryText) && !canForceBoundary)
             {
                 AiStatusText.Text = "Auto-stream waiting for full question context…";
                 _autoStreamDebounceTimer.Stop();
@@ -1324,6 +1451,7 @@ namespace LiveTranscript
                 var useNotesMode = IsNotesAnswerMode();
                 var answerModeName = ActiveAnswerModeName(useNotesMode);
                 AiStatusText.Text = $"Auto-extracting and generating {answerModeName} ({wordCount} new words)…";
+                var requestStartedAt = DateTime.UtcNow;
 
                 var extractedQuestions = await ExtractQuestionAnswersForCurrentProviderAsync(
                     apiKey,
@@ -1332,11 +1460,13 @@ namespace LiveTranscript
                     BuildKnownQuestionTexts(),
                     BuildAnswerHistoryContext(AnswerHistoryMaxChars),
                     useNotesMode);
+                var requestElapsed = DateTime.UtcNow - requestStartedAt;
+                System.Diagnostics.Debug.WriteLine($"Auto-extract completed in {requestElapsed.TotalSeconds:0.0}s; questions={extractedQuestions.Count}; words={wordCount}");
 
                 if (!IsCurrentAiWork(aiHistoryGeneration, transcriptGeneration))
                     return;
 
-                _lastExtractedEntryIndex = entries.Count;
+                _lastExtractedEntryIndex = extractionEndEntryIndex;
                 _autoStreamPendingSince = DateTime.MinValue;
 
                 if (extractedQuestions.Count > 0)
@@ -1348,16 +1478,16 @@ namespace LiveTranscript
                     if (newQas.Count > 0)
                     {
                         EnsureQaListBound();
-                        AiStatusText.Text = $"{newQas.Count} questions found (auto). Generated {answerModeName}.";
+                        AiStatusText.Text = $"{newQas.Count} questions found (auto). Generated {answerModeName} in {requestElapsed.TotalSeconds:0.0}s.";
                     }
                     else
                     {
-                        AiStatusText.Text = "No new questions detected.";
+                        AiStatusText.Text = $"No new questions detected ({requestElapsed.TotalSeconds:0.0}s).";
                     }
                 }
                 else
                 {
-                    AiStatusText.Text = "No new questions detected.";
+                    AiStatusText.Text = $"No new questions detected ({requestElapsed.TotalSeconds:0.0}s).";
                 }
             }
             catch (Exception ex)
@@ -1368,6 +1498,11 @@ namespace LiveTranscript
             finally
             {
                 _isExtracting = false;
+                if (_autoExtractEnabled && _autoExtractQueuedDuringRun)
+                {
+                    _autoExtractQueuedDuringRun = false;
+                    OnTranscriptChanged();
+                }
             }
         }
 
@@ -1437,6 +1572,8 @@ namespace LiveTranscript
         private void SetTextZoom(double factor)
         {
             TextZoomFactor = Math.Round(Math.Clamp(factor, TextZoomMin, TextZoomMax), 2);
+            _settings.TextZoomFactor = TextZoomFactor;
+            _settings.Save();
             UpdateStatus($"Text zoom {TextZoomFactor * 100:0}%");
         }
 
@@ -1607,6 +1744,112 @@ namespace LiveTranscript
             return (text ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries).Length;
         }
 
+        private static bool ContainsQuestionMark(string text)
+        {
+            return !string.IsNullOrEmpty(text) && text.Contains('?');
+        }
+
+        private static bool LooksLikeInterviewPrompt(string text)
+        {
+            var normalized = NormalizeAutoStreamText(text);
+            if (normalized.Length == 0)
+                return false;
+
+            return StartsWithAnyPhrase(normalized,
+                       "who",
+                       "what",
+                       "when",
+                       "where",
+                       "why",
+                       "how",
+                       "if",
+                       "can you",
+                       "can it",
+                       "can i",
+                       "could you",
+                       "could it",
+                       "could i",
+                       "would you",
+                       "would it",
+                       "would i",
+                       "will you",
+                       "will it",
+                       "will i",
+                       "do you",
+                       "do i",
+                       "did you",
+                       "did i",
+                       "does it",
+                       "does this",
+                       "does that",
+                       "does your",
+                       "have you",
+                       "have i",
+                       "has your",
+                       "has this",
+                       "has it",
+                       "are you",
+                       "are there",
+                       "are we",
+                       "are they",
+                       "is there",
+                       "is it",
+                       "is this",
+                       "is that",
+                       "was there",
+                       "were you",
+                       "were there",
+                       "should you",
+                       "should i",
+                       "should it",
+                       "should this",
+                       "should there",
+                       "tell me about",
+                       "walk me through",
+                       "talk about",
+                       "describe",
+                       "explain",
+                       "elaborate on",
+                       "give me an example",
+                       "share an example") ||
+                   ContainsPhrase(normalized, "any questions") ||
+                   ContainsPhrase(normalized, "questions for me") ||
+                   ContainsPhrase(normalized, "your experience with") ||
+                   ContainsPhrase(normalized, "biggest strength") ||
+                   ContainsPhrase(normalized, "biggest weakness");
+        }
+
+        private static string NormalizeAutoStreamText(string text)
+        {
+            if (string.IsNullOrWhiteSpace(text))
+                return string.Empty;
+
+            var sb = new StringBuilder(text.Length);
+            foreach (var ch in text)
+                sb.Append(char.IsLetterOrDigit(ch) ? char.ToLowerInvariant(ch) : ' ');
+
+            return string.Join(" ", sb.ToString().Split(' ', StringSplitOptions.RemoveEmptyEntries));
+        }
+
+        private static bool StartsWithAnyPhrase(string text, params string[] phrases)
+        {
+            return phrases.Any(phrase => StartsWithPhrase(text, phrase));
+        }
+
+        private static bool StartsWithPhrase(string text, string phrase)
+        {
+            return text.Equals(phrase, StringComparison.Ordinal) ||
+                   text.StartsWith($"{phrase} ", StringComparison.Ordinal);
+        }
+
+        private static bool ContainsPhrase(string text, string phrase)
+        {
+            return text.Equals(phrase, StringComparison.Ordinal) ||
+                   text.StartsWith($"{phrase} ", StringComparison.Ordinal) ||
+                   text.EndsWith($" {phrase}", StringComparison.Ordinal) ||
+                   text.Contains($" {phrase} ", StringComparison.Ordinal);
+        }
+
         private static bool LooksLikeBoundarySafe(string text)
         {
             if (string.IsNullOrWhiteSpace(text))
@@ -1660,7 +1903,7 @@ namespace LiveTranscript
             return sb.ToString().Trim();
         }
 
-        private void CopyTranscriptAll_Click(object sender, RoutedEventArgs e)
+        private async void CopyTranscriptAll_Click(object sender, RoutedEventArgs e)
         {
             var text = BuildTranscriptText();
             if (string.IsNullOrWhiteSpace(text))
@@ -1669,11 +1912,13 @@ namespace LiveTranscript
                 return;
             }
 
-            Clipboard.SetText(text);
-            UpdateStatus("📋 Transcript copied");
+            if (await TrySetClipboardTextAsync(text))
+                UpdateStatus("📋 Transcript copied");
+            else
+                UpdateStatus("⚠ Copy failed: clipboard is busy. Try again in a moment.", isError: true);
         }
 
-        private void CopyQaAll_Click(object sender, RoutedEventArgs e)
+        private async void CopyQaAll_Click(object sender, RoutedEventArgs e)
         {
             if (_qaItems.Count == 0)
             {
@@ -1723,8 +1968,62 @@ namespace LiveTranscript
             }
 
             var text = sb.ToString().Trim();
-            Clipboard.SetText(text);
-            UpdateStatus("📋 Q&A copied");
+            if (await TrySetClipboardTextAsync(text))
+                UpdateStatus("📋 Q&A copied");
+            else
+                UpdateStatus("⚠ Copy failed: clipboard is busy. Try again in a moment.", isError: true);
+        }
+
+        private static async Task<bool> TrySetClipboardTextAsync(string text)
+        {
+            return await Task.Run(() => TrySetClipboardTextOnStaThread(text));
+        }
+
+        private static bool TrySetClipboardTextOnStaThread(string text)
+        {
+            var copied = false;
+            Exception? lastError = null;
+            using var done = new ManualResetEventSlim(false);
+
+            var thread = new Thread(() =>
+            {
+                try
+                {
+                    for (var attempt = 0; attempt < 12; attempt++)
+                    {
+                        try
+                        {
+                            Clipboard.SetText(text, TextDataFormat.UnicodeText);
+                            copied = true;
+                            return;
+                        }
+                        catch (Exception ex) when (ex is ExternalException || ex is InvalidOperationException)
+                        {
+                            lastError = ex;
+                            Thread.Sleep(75);
+                        }
+                    }
+                }
+                finally
+                {
+                    done.Set();
+                }
+            });
+
+            thread.SetApartmentState(ApartmentState.STA);
+            thread.IsBackground = true;
+            thread.Start();
+
+            if (!done.Wait(TimeSpan.FromSeconds(2)))
+            {
+                System.Diagnostics.Debug.WriteLine("Clipboard copy timed out.");
+                return false;
+            }
+
+            if (lastError != null)
+                System.Diagnostics.Debug.WriteLine($"Clipboard copy failed: {lastError.Message}");
+
+            return copied;
         }
 
         // Settings events
