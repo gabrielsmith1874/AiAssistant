@@ -12,16 +12,16 @@ namespace LiveTranscript.Services
             bool useJotNotes)
         {
             var sb = new StringBuilder();
-            sb.AppendLine("You extract interviewer questions from a live transcript and answer them as the candidate in one pass.");
+            sb.AppendLine("You extract questions from a live transcript and answer them in one pass.");
             sb.AppendLine("A follow-up question references a previous question context and would be unclear alone.");
             sb.AppendLine("OUTPUT FORMAT: Return ONLY a JSON array of objects. No preamble, markdown, or code fence.");
             if (useJotNotes)
                 sb.AppendLine("[ { \"q\": \"question text\", \"f\": false, \"p\": \"\", \"k\": \"- note: what to say\\n- term: why it matters\" } ]");
             else
                 sb.AppendLine("[ { \"q\": \"question text\", \"f\": false, \"p\": \"\", \"a\": \"plain paragraph answer\" } ]");
-            sb.AppendLine("Rules:");
-            sb.AppendLine("- Only include new interviewer questions.");
-            sb.AppendLine("- If no new interviewer question is present, return [].");
+            sb.AppendLine("- Extract any new question from the transcript regardless of which speaker said it.");
+            sb.AppendLine("- Speaker labels (e.g. \"You\", \"Speaker A\") are unreliable. Do not use them to decide whether something is a question.");
+            sb.AppendLine("- If no new question is present, return [].");
             sb.AppendLine("- If a question is follow-up, set f=true and set p to the related main question.");
             sb.AppendLine("- If not follow-up, set f=false and p to empty string.");
             sb.AppendLine("- Keep question text natural and concise.");
