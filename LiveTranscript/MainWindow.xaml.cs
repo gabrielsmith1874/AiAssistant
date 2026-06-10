@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -1417,7 +1417,7 @@ namespace LiveTranscript
                 ? 0
                 : (DateTime.UtcNow - _autoStreamPendingSince).TotalMilliseconds;
             var canForceBoundary = waitedMs >= AutoStreamMaxWaitMs;
-            var looksLikeInterviewPrompt = LooksLikeInterviewPrompt(newText);
+            var looksLikeInterviewPrompt = newEntries.Any(e => LooksLikeInterviewPrompt(e.Text));
 
             if (wordCount < MinNewWords && !hasQuestionMark && !looksLikeInterviewPrompt && !canForceBoundary)
             {
@@ -1427,7 +1427,7 @@ namespace LiveTranscript
                 return;
             }
 
-            if (!hasQuestionMark && !LooksLikeBoundarySafe(lastEntryText) && !canForceBoundary)
+            if (!hasQuestionMark && !looksLikeInterviewPrompt && !LooksLikeBoundarySafe(lastEntryText) && !canForceBoundary)
             {
                 AiStatusText.Text = "Auto-stream waiting for full question context…";
                 _autoStreamDebounceTimer.Stop();
